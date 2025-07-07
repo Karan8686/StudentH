@@ -5,6 +5,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import '../models/student.dart';
 import '../models/teacher.dart';
+import '../models/audit_log.dart';
 
 class FirebaseService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -789,5 +790,74 @@ class FirebaseService {
       print('Error getting student from Firestore: $e');
       return null;
     }
+  }
+
+  // Public wrapper for clearing students from a file
+  Future<void> clearStudentsFromFile(String fileId) async {
+    return _clearStudentsFromFile(fileId);
+  }
+
+  // Public method to update file metadata
+  Future<void> updateFileMetadata(
+    String userId,
+    String fileId,
+    List<String> columns,
+    String fileName,
+    int studentCount,
+  ) async {
+    await _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('metadata')
+        .doc(fileId)
+        .set({
+          'columns': columns,
+          'fileName': fileName,
+          'studentCount': studentCount,
+          'lastUpdated': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+  }
+
+  // Sync local audit logs to Firestore, keeping only the 10 most recent in Firestore
+  Future<void> syncAuditLogs(
+    List<AuditLog> localLogs,
+    String userId,
+    String fileId,
+  ) async {
+    final auditCollection = _firestore
+        .collection('users')
+        .doc(userId)
+        .collection('files')
+        .doc(fileId)
+        .collection('audit_logs');
+
+    // 1. Get only local logs with priority 0 (not yet synced)
+    final newLogs = localLogs.where((log) => log.priority == 0).toList();
+    if (newLogs.isEmpty) return;
+
+    // 2. Upload new logs
+    final batch = _firestore.batch();
+    for (final log in newLogs) {
+      final docRef = auditCollection.doc(log.id);
+      batch.set(docRef, log.toJson());
+    }
+    await batch.commit();
+
+    // 3. Fetch all logs in Firestore, order by timestamp/ID (assuming ID is sortable by time)
+    final snapshot = await auditCollection
+        .orderBy('timestamp', descending: true)
+        .get();
+    final docs = snapshot.docs;
+    if (docs.length > 10) {
+      // 4. Delete older logs, keep only 10 most recent
+      final toDelete = docs.skip(10);
+      final delBatch = _firestore.batch();
+      for (final doc in toDelete) {
+        delBatch.delete(doc.reference);
+      }
+      await delBatch.commit();
+    }
+
+    // 5. Mark synced logs as priority 1 locally (should be done in ViewModel after successful sync)
   }
 }

@@ -11,6 +11,7 @@ class AuditLog {
   final Map<String, dynamic>? newData; // For undo
   final DateTime timestamp;
   final String userEmail;
+  int priority;
 
   AuditLog({
     required this.id,
@@ -21,6 +22,7 @@ class AuditLog {
     this.newData,
     required this.timestamp,
     required this.userEmail,
+    this.priority = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -32,8 +34,11 @@ class AuditLog {
       'newData': newData,
       'timestamp': timestamp,
       'userEmail': userEmail,
+      'priority': priority,
     };
   }
+
+  Map<String, dynamic> toJson() => toMap();
 
   factory AuditLog.fromMap(Map<String, dynamic> data, String id) {
     return AuditLog(
@@ -45,6 +50,7 @@ class AuditLog {
       newData: data['newData'],
       timestamp: (data['timestamp'] as Timestamp).toDate(),
       userEmail: data['userEmail'] ?? '',
+      priority: data['priority'] ?? 0,
     );
   }
 

@@ -495,25 +495,62 @@ class _HomePageState extends State<HomePage>
           }
 
           if (!viewModel.hasData) {
-            return const Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.upload_file, size: 64, color: Colors.blue),
-                  SizedBox(height: 16),
-                  Text(
-                    'Upload Excel File',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+            return Center(
+              child: Card(
+                elevation: 4,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                margin: const EdgeInsets.symmetric(horizontal: 32),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 32,
                   ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Select an Excel file to manage student fee records',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Color(0xFF757575)),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.upload_file,
+                        size: 64,
+                        color: Colors.blue,
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Upload Excel File',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Select an Excel file to manage student fee records',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Color(0xFF757575)),
+                      ),
+                      const SizedBox(height: 24),
+                      ElevatedButton.icon(
+                        icon: const Icon(Icons.folder_open),
+                        label: const Text('Select Excel File'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade600,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size.fromHeight(48),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          textStyle: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          elevation: 2,
+                        ),
+                        onPressed: viewModel.loadExcelFile,
+                      ),
+                    ],
                   ),
-                  SizedBox(height: 24),
-                  // Button must remain dynamic for onPressed
-                ],
+                ),
               ),
             );
           }

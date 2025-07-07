@@ -8,6 +8,9 @@ import 'dart:convert';
 import '../models/student.dart';
 import '../services/firebase_service.dart';
 import '../services/audit_service.dart';
+import '../models/audit_log.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:flutter/material.dart';
 
 class StudentViewModel extends ChangeNotifier {
   List<String> _columns = [];
@@ -22,6 +25,12 @@ class StudentViewModel extends ChangeNotifier {
   String? _currentFileId; // Track current active file
   bool onlyPendingFeesFilter = false;
   double? pendingFeesMinFilter;
+  double _progress = 0.0;
+  double _uploadProgress = 0.0;
+  bool _isUploadingToCloud = false;
+  List<AuditLog> _auditLogs = [];
+  bool _isUpdatingStudent = false;
+  bool _hasCompletedInitialSync = false;
 
   // Firebase service
   final FirebaseService _firebaseService = FirebaseService();
@@ -43,6 +52,15 @@ class StudentViewModel extends ChangeNotifier {
   bool get isPendingFilterActive =>
       onlyPendingFeesFilter ||
       (pendingFeesMinFilter != null && pendingFeesMinFilter! > 0);
+  double get progress => _progress;
+  double get uploadProgress => _uploadProgress;
+  bool get isUploadingToCloud => _isUploadingToCloud;
+  bool get isUploadComplete =>
+      _hasCompletedInitialSync ||
+      (!_isUploadingToCloud && _auditLogs.every((log) => log.priority == 1));
+  List<AuditLog> get auditLogs => _auditLogs;
+  bool get isUpdatingStudent => _isUpdatingStudent;
+  bool get hasCompletedInitialSync => _hasCompletedInitialSync;
 
   Set<String> get divisionOptions {
     return _students
@@ -229,35 +247,38 @@ class StudentViewModel extends ChangeNotifier {
     }
   }
 
-  // Sync data to cloud
+  // Incremental sync: only process audit logs with priority 0
   Future<void> syncToCloud(String fileName) async {
     if (!isAuthenticated) {
       _error = 'Please sign in to sync to cloud';
       notifyListeners();
       return;
     }
-
     try {
       _isLoading = true;
       notifyListeners();
-
-      // If we have a current file, update it. Otherwise create new file
-      await _firebaseService.syncDataToCloud(
-        _students,
-        _columns,
-        fileName,
-        existingFileId:
-            _currentFileId, // Pass current file ID to update instead of create new
-      );
-
-      // If this was a new file, get the file ID
-      if (_currentFileId == null) {
-        final availableFiles = await _firebaseService.getAvailableFiles();
-        if (availableFiles.isNotEmpty) {
-          _currentFileId = availableFiles.first['fileId'];
+      final user = _firebaseService.currentUser;
+      if (user == null) throw Exception('User not authenticated');
+      final fileId =
+          _currentFileId ?? 'file_${DateTime.now().millisecondsSinceEpoch}';
+      // Only logs with priority 0 (not yet synced)
+      final pendingLogs = _auditLogs.where((log) => log.priority == 0).toList();
+      for (final log in pendingLogs) {
+        if (log.action == 'add' || log.action == 'update') {
+          final Student? student = _findStudentById(log.studentId);
+          if (student != null) {
+            await _firebaseService.uploadStudentsToFirestoreWithFileId([
+              student,
+            ], fileId);
+          }
+        } else if (log.action == 'delete') {
+          await _firebaseService.deleteStudentFromFile(log.studentId, fileId);
         }
+        // Mark as synced
+        log.priority = 1;
       }
-
+      // Sync audit logs to Firestore (limit to 10 most recent)
+      await _firebaseService.syncAuditLogs(_auditLogs, user.uid, fileId);
       _error = null;
     } catch (e) {
       _error = 'Error syncing to cloud: $e';
@@ -290,70 +311,15 @@ class StudentViewModel extends ChangeNotifier {
     }
   }
 
-  // Add this top-level function for compute
-  Map<String, dynamic> _parseExcelInBackground(Map<String, dynamic> args) {
-    final Uint8List fileBytes = args['fileBytes'];
-    final String fileName = args['fileName'];
-    final excel = Excel.decodeBytes(fileBytes);
-    final sheetNames = excel.tables.keys.toList();
-    if (sheetNames.isEmpty) {
-      throw Exception('Excel file contains no sheets');
-    }
-    final sheet = excel.tables[sheetNames.first];
-    if (sheet == null) {
-      throw Exception('Could not access the first sheet');
-    }
-    // Extract headers from first row
-    final List<String> columns = [];
-    final headerRow = sheet.row(0);
-    for (int col = 0; col < sheet.maxColumns; col++) {
-      String columnName = '';
-      if (col < headerRow.length) {
-        final cellValue = headerRow[col];
-        if (cellValue != null && cellValue.value != null) {
-          columnName = cellValue.value.toString().trim();
-        }
-      }
-      if (columnName.isEmpty) {
-        columnName = 'Column_${col + 1}';
-      }
-      columns.add(columnName);
-    }
-    // Parse data rows
-    final List<Map<String, dynamic>> students = [];
-    final totalRows = sheet.maxRows;
-    for (int row = 1; row < totalRows; row++) {
-      final rowData = <String, dynamic>{};
-      bool hasData = false;
-      final currentRow = sheet.row(row);
-      for (int col = 0; col < columns.length; col++) {
-        String value = '';
-        if (col < currentRow.length) {
-          final cellValue = currentRow[col];
-          if (cellValue != null && cellValue.value != null) {
-            value = cellValue.value.toString().trim();
-            if (value.isNotEmpty) hasData = true;
-          }
-        }
-        rowData[columns[col]] = value;
-      }
-      if (hasData) {
-        final studentId = 'row_${row}_${DateTime.now().millisecondsSinceEpoch}';
-        rowData['id'] = studentId;
-        students.add(rowData);
-      }
-    }
-    return {'columns': columns, 'students': students, 'fileName': fileName};
-  }
-
   // Parse Excel file
   Future<void> parseExcelFile(Uint8List fileBytes, String fileName) async {
     try {
       _isLoading = true;
+      _progress = 0.0;
       _error = null;
       notifyListeners();
-      // Offload parsing to background isolate
-      final result = await compute(_parseExcelInBackground, {
+      // Offload parsing to background isolate with progress callback
+      final result = await compute(parseExcelInBackgroundTopLevel, {
         'fileBytes': fileBytes,
         'fileName': fileName,
       });
@@ -362,35 +328,80 @@ class StudentViewModel extends ChangeNotifier {
           .map((rowData) => Student.fromMap(rowData, rowData['id'] as String))
           .toList();
       _fileName = fileName;
+      _progress = 1.0;
       await _saveDataToLocal();
-      // Upload Excel file to cloud storage if authenticated
+      notifyListeners(); // Data is now available in the app
+      // Start background upload
       if (isAuthenticated) {
-        try {
-          final downloadUrl = await uploadExcelToCloud(fileBytes, fileName);
-          print('Excel file uploaded to cloud storage: $downloadUrl');
-        } catch (e) {
-          print('Error uploading Excel file to cloud storage: $e');
-        }
-      }
-      // Sync data to Firestore if authenticated using new file versioning system
-      if (isAuthenticated) {
-        try {
-          await syncToCloud(fileName);
-          print('Data synced to cloud with file versioning');
-        } catch (e) {
-          print('Error syncing data to cloud: $e');
-        }
+        _isUploadingToCloud = true;
+        _uploadProgress = 0.0;
+        notifyListeners();
+        await uploadStudentsInBatches(_students, _columns, _fileName!);
+        _isUploadingToCloud = false;
+        _uploadProgress = 1.0;
+        _hasCompletedInitialSync = true;
+        notifyListeners();
       }
       _applyFilters();
-      print('DEBUG: Excel parsing completed successfully');
+      print('DEBUG: Excel parsing and local load completed successfully');
     } catch (e, stackTrace) {
       print('DEBUG: Error in parseExcelFile: $e');
       print('DEBUG: Stack trace: $stackTrace');
       _error = 'Error parsing Excel file: $e';
     } finally {
       _isLoading = false;
+      _progress = 0.0;
       notifyListeners();
     }
+  }
+
+  // Upload students to Firestore in batches of 500
+  Future<void> uploadStudentsInBatches(
+    List<Student> students,
+    List<String> columns,
+    String fileName,
+  ) async {
+    const int batchSize = 500;
+    int total = students.length;
+    int uploaded = 0;
+    String? fileId = _currentFileId;
+    final user = _firebaseService.currentUser;
+    if (user == null) return;
+    // If no fileId, create one
+    if (fileId == null) {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      fileId = 'file_$timestamp';
+      _currentFileId = fileId;
+    }
+    // Clear existing students if updating
+    if (uploaded == 0) {
+      await _firebaseService.clearStudentsFromFile(fileId);
+    }
+    while (uploaded < total) {
+      final batch = students.skip(uploaded).take(batchSize).toList();
+      await _firebaseService.uploadStudentsToFirestoreWithFileId(batch, fileId);
+      uploaded += batch.length;
+      _uploadProgress = uploaded / total;
+      print(
+        'Uploading batch: $uploaded / $total, progress: [32m$_uploadProgress[0m',
+      );
+      notifyListeners();
+      await Future.delayed(
+        Duration(milliseconds: 300),
+      ); // Artificial delay for progress bar testing
+    }
+    // Update metadata after all batches
+    await _firebaseService.updateFileMetadata(
+      user.uid,
+      fileId,
+      columns,
+      fileName,
+      total,
+    );
+    // Ensure upload state is correct and UI is notified
+    _isUploadingToCloud = false;
+    _uploadProgress = 1.0;
+    notifyListeners();
   }
 
   // Search and filter methods
@@ -466,32 +477,56 @@ class StudentViewModel extends ChangeNotifier {
   }
 
   // Student CRUD operations
+  void _ensureFileId() {
+    if (_currentFileId == null || _currentFileId!.isEmpty) {
+      _currentFileId = 'file_${DateTime.now().millisecondsSinceEpoch}';
+      print('DEBUG: Generated new fileId: [32m$_currentFileId[0m');
+    }
+  }
+
   Future<void> addStudent(Student student, {bool skipLogging = false}) async {
     try {
+      _ensureFileId();
+      print(
+        'DEBUG: addStudent fileId: $_currentFileId, studentId: ${student.id}',
+      );
       _students.add(student);
       await _saveDataToLocal();
-
+      AuditLog? log;
       // Add audit log (skip for undo operations)
       if (!skipLogging) {
-        await _auditService.addLog(
+        log = AuditLog(
+          id: 'log_${DateTime.now().millisecondsSinceEpoch}',
           action: 'add',
           studentId: student.id,
           studentName: student.name,
           newData: student.data,
+          oldData: null,
+          timestamp: DateTime.now(),
+          userEmail: '',
+          priority: 0,
+        );
+        _auditLogs.insert(0, log);
+        notifyListeners();
+        await _firebaseService.syncAuditLogs(
+          _auditLogs,
+          _firebaseService.currentUser?.uid ?? '',
+          _currentFileId!,
         );
       }
-
-      // Update in cloud if authenticated
-      if (isAuthenticated) {
-        if (_currentFileId != null) {
-          // Use new file-based system
-          await _firebaseService.addStudentToFile(student, _currentFileId!);
-        } else {
-          // Fallback to old system for backward compatibility
-          await _firebaseService.uploadStudentsToFirestore([student]);
+      // Real-time sync to Firestore
+      if (isAuthenticated && log != null) {
+        if (_currentFileId == null) {
+          _currentFileId = 'file_${DateTime.now().millisecondsSinceEpoch}';
         }
+        _showSyncMessage('Syncing changes to cloud: 1 record added...');
+        await _firebaseService.uploadStudentsToFirestoreWithFileId([
+          student,
+        ], _currentFileId!);
+        log.priority = 1;
+        notifyListeners();
+        _showSyncMessage('1 record synced successfully.');
       }
-
       _applyFilters();
       notifyListeners();
     } catch (e) {
@@ -505,48 +540,81 @@ class StudentViewModel extends ChangeNotifier {
     bool skipLogging = false,
   }) async {
     try {
+      _ensureFileId();
+      print(
+        'DEBUG: updateStudent fileId: $_currentFileId, studentId: ${student.id}',
+      );
+      _isUpdatingStudent = true;
+      notifyListeners();
       final index = _students.indexWhere((s) => s.id == student.id);
       if (index != -1) {
         final oldStudent = _students[index];
         _students[index] = student;
         await _saveDataToLocal();
-
+        AuditLog? log;
         // Add audit log (skip for undo operations)
         if (!skipLogging) {
-          await _auditService.addLog(
+          log = AuditLog(
+            id: 'log_${DateTime.now().millisecondsSinceEpoch}',
             action: 'update',
             studentId: student.id,
             studentName: student.name,
             oldData: oldStudent.data,
             newData: student.data,
+            timestamp: DateTime.now(),
+            userEmail: '',
+            priority: 0,
+          );
+          _auditLogs.insert(0, log);
+          notifyListeners();
+          await _firebaseService.syncAuditLogs(
+            _auditLogs,
+            _firebaseService.currentUser?.uid ?? '',
+            _currentFileId!,
           );
         }
-
-        // Update in cloud if authenticated
-        if (isAuthenticated) {
-          if (_currentFileId != null) {
-            // Use new file-based system
-            await _firebaseService.updateStudentInFile(
-              student,
-              _currentFileId!,
-            );
-          } else {
-            // Fallback to old system for backward compatibility
-            await _firebaseService.updateStudentInFirestore(student);
-            // Fetch latest student data from Firestore and update local list
+        // Real-time sync to Firestore
+        if (isAuthenticated && log != null) {
+          if (_currentFileId == null) {
+            _currentFileId = 'file_${DateTime.now().millisecondsSinceEpoch}';
+          }
+          _showSyncMessage('Syncing changes to cloud: 1 record updated...');
+          await _firebaseService.uploadStudentsToFirestoreWithFileId([
+            student,
+          ], _currentFileId!);
+          await Future.delayed(
+            const Duration(seconds: 1),
+          ); // Add delay before fetching
+          // Fetch the updated student from Firestore and update local list
+          try {
             final latest = await _firebaseService.getStudentFromFirestore(
               student.id,
             );
             if (latest != null) {
               _students[index] = latest;
+              await _saveDataToLocal();
+              notifyListeners();
             }
+            log.priority = 1;
+            notifyListeners();
+            _showSyncMessage('1 record synced successfully.');
+          } catch (fetchError, stack) {
+            print(
+              'DEBUG: Error fetching updated student from Firestore: $fetchError',
+            );
+            print(stack);
+            _error = 'Error fetching updated student: $fetchError';
+            notifyListeners();
           }
         }
-
+        _isUpdatingStudent = false;
         _applyFilters();
         notifyListeners();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      _isUpdatingStudent = false;
+      print('DEBUG: Error in updateStudent: $e');
+      print(stackTrace);
       _error = 'Error updating student: $e';
       notifyListeners();
     }
@@ -557,34 +625,49 @@ class StudentViewModel extends ChangeNotifier {
     bool skipLogging = false,
   }) async {
     try {
+      _ensureFileId();
+      print(
+        'DEBUG: deleteStudent fileId: $_currentFileId, studentId: $studentId',
+      );
       final studentToDelete = _students.firstWhere((s) => s.id == studentId);
       _students.removeWhere((s) => s.id == studentId);
       await _saveDataToLocal();
-
+      AuditLog? log;
       // Add audit log (skip for undo operations)
       if (!skipLogging) {
-        await _auditService.addLog(
+        log = AuditLog(
+          id: 'log_${DateTime.now().millisecondsSinceEpoch}',
           action: 'delete',
           studentId: studentId,
           studentName: studentToDelete.name,
           oldData: studentToDelete.data,
+          newData: null,
+          timestamp: DateTime.now(),
+          userEmail: '',
+          priority: 0,
+        );
+        _auditLogs.insert(0, log);
+        notifyListeners();
+        await _firebaseService.syncAuditLogs(
+          _auditLogs,
+          _firebaseService.currentUser?.uid ?? '',
+          _currentFileId!,
         );
       }
-
-      // Delete from cloud if authenticated
-      if (isAuthenticated) {
-        if (_currentFileId != null) {
-          // Use new file-based system
-          await _firebaseService.deleteStudentFromFile(
-            studentId,
-            _currentFileId!,
-          );
-        } else {
-          // Fallback to old system for backward compatibility
-          await _firebaseService.deleteStudentFromFirestore(studentId);
+      // Real-time sync to Firestore
+      if (isAuthenticated && log != null) {
+        if (_currentFileId == null) {
+          _currentFileId = 'file_${DateTime.now().millisecondsSinceEpoch}';
         }
+        _showSyncMessage('Syncing changes to cloud: 1 record deleted...');
+        await _firebaseService.deleteStudentFromFile(
+          studentId,
+          _currentFileId!,
+        );
+        log.priority = 1;
+        notifyListeners();
+        _showSyncMessage('1 record synced successfully.');
       }
-
       _applyFilters();
       notifyListeners();
     } catch (e) {
@@ -740,4 +823,79 @@ class StudentViewModel extends ChangeNotifier {
       return [];
     }
   }
+
+  Student? _findStudentById(String id) {
+    for (final s in _students) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  void _showSyncMessage(String message) {
+    Fluttertoast.showToast(
+      msg: message,
+      toastLength: Toast.LENGTH_SHORT,
+      gravity: ToastGravity.BOTTOM,
+      backgroundColor: Colors.blue,
+      textColor: Colors.white,
+    );
+  }
+}
+
+// Top-level function for compute (must be outside any class)
+Map<String, dynamic> parseExcelInBackgroundTopLevel(Map<String, dynamic> args) {
+  final Uint8List fileBytes = args['fileBytes'];
+  final String fileName = args['fileName'];
+  final excel = Excel.decodeBytes(fileBytes);
+  final sheetNames = excel.tables.keys.toList();
+  if (sheetNames.isEmpty) {
+    throw Exception('Excel file contains no sheets');
+  }
+  final sheet = excel.tables[sheetNames.first];
+  if (sheet == null) {
+    throw Exception('Could not access the first sheet');
+  }
+  // Extract and sanitize headers from first row
+  final List<String> columns = [];
+  final headerRow = sheet.row(0);
+  for (int col = 0; col < sheet.maxColumns; col++) {
+    String columnName = '';
+    if (col < headerRow.length) {
+      final cellValue = headerRow[col];
+      if (cellValue != null && cellValue.value != null) {
+        columnName = cellValue.value.toString().trim();
+      }
+    }
+    // Sanitize: replace invalid Firestore chars and skip empty
+    columnName = columnName.replaceAll(RegExp(r'[\.$\[\]/#]'), '_');
+    if (columnName.isEmpty) {
+      columnName = 'Column_${col + 1}';
+    }
+    columns.add(columnName);
+  }
+  // Parse data rows
+  final List<Map<String, dynamic>> students = [];
+  final totalRows = sheet.maxRows;
+  for (int row = 1; row < totalRows; row++) {
+    final rowData = <String, dynamic>{};
+    bool hasData = false;
+    final currentRow = sheet.row(row);
+    for (int col = 0; col < columns.length; col++) {
+      String value = '';
+      if (col < currentRow.length) {
+        final cellValue = currentRow[col];
+        if (cellValue != null && cellValue.value != null) {
+          value = cellValue.value.toString().trim();
+          if (value.isNotEmpty) hasData = true;
+        }
+      }
+      rowData[columns[col]] = value;
+    }
+    if (hasData) {
+      final studentId = 'row_${row}_${DateTime.now().millisecondsSinceEpoch}';
+      rowData['id'] = studentId;
+      students.add(rowData);
+    }
+  }
+  return {'columns': columns, 'students': students, 'fileName': fileName};
 }
