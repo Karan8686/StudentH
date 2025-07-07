@@ -12,6 +12,7 @@ import 'dart:io';
 import 'package:fluttertoast/fluttertoast.dart';
 import '../views/login_page.dart';
 import 'no_network_screen.dart';
+import 'package:flutter/rendering.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,7 +21,8 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage>
+    with AutomaticKeepAliveClientMixin {
   final FirebaseService firebaseService = FirebaseService();
   final NetworkService networkService = NetworkService();
   bool _isNetworkConnected = true;
@@ -43,6 +45,9 @@ class _HomePageState extends State<HomePage> {
     _searchController.dispose();
     super.dispose();
   }
+
+  @override
+  bool get wantKeepAlive => true;
 
   void _checkNetworkStatus() async {
     print('DEBUG: Checking network status in HomePage');
@@ -72,13 +77,10 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     // Show NoNetworkScreen if not connected
     if (!_isNetworkConnected) {
-      return NoNetworkScreen(
-        onRetry: () {
-          _checkNetworkStatus();
-        },
-      );
+      return NoNetworkScreen(onRetry: _checkNetworkStatus);
     }
 
     return Scaffold(
@@ -304,10 +306,10 @@ class _HomePageState extends State<HomePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'Signed in as',
                           style: TextStyle(
-                            color: Colors.grey.shade600,
+                            color: Color(0xFF757575),
                             fontSize: 12,
                           ),
                         ),
@@ -484,7 +486,7 @@ class _HomePageState extends State<HomePage> {
                   ),
                   const SizedBox(height: 16),
                   ElevatedButton(
-                    onPressed: () => viewModel.loadExcelFile(),
+                    onPressed: viewModel.loadExcelFile,
                     child: const Text('Try Again'),
                   ),
                 ],
@@ -493,34 +495,24 @@ class _HomePageState extends State<HomePage> {
           }
 
           if (!viewModel.hasData) {
-            return Center(
+            return const Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    Icons.upload_file,
-                    size: 64,
-                    color: Colors.blue.shade300,
-                  ),
-                  const SizedBox(height: 16),
+                  Icon(Icons.upload_file, size: 64, color: Colors.blue),
+                  SizedBox(height: 16),
                   Text(
                     'Upload Excel File',
-                    style: Theme.of(context).textTheme.headlineSmall,
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     'Select an Excel file to manage student fee records',
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(color: Color(0xFF757575)),
                   ),
-                  const SizedBox(height: 24),
-                  ElevatedButton.icon(
-                    onPressed: () => viewModel.loadExcelFile(),
-                    icon: const Icon(Icons.upload_file),
-                    label: const Text('Choose Excel File'),
-                  ),
+                  SizedBox(height: 24),
+                  // Button must remain dynamic for onPressed
                 ],
               ),
             );
@@ -613,7 +605,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildHeader(BuildContext context, StudentViewModel viewModel) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.blue.shade50,
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
@@ -623,19 +615,19 @@ class _HomePageState extends State<HomePage> {
         children: [
           Row(
             children: [
-              Icon(Icons.description, color: Colors.blue.shade700),
-              const SizedBox(width: 8),
+              Icon(Icons.description, color: Colors.blue.shade700, size: 20),
+              const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   viewModel.fileName!,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 6),
           Row(
             children: [
               _buildStatCard(
@@ -645,7 +637,7 @@ class _HomePageState extends State<HomePage> {
                 Icons.people,
                 Colors.blue,
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 6),
               _buildStatCard(
                 context,
                 'Showing',
@@ -669,7 +661,7 @@ class _HomePageState extends State<HomePage> {
   ) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(8),
@@ -677,22 +669,24 @@ class _HomePageState extends State<HomePage> {
         ),
         child: Row(
           children: [
-            Icon(icon, color: color, size: 20),
-            const SizedBox(width: 8),
+            Icon(icon, color: color, size: 16),
+            const SizedBox(width: 4),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   title,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Colors.grey.shade600,
+                    fontSize: 11,
+                  ),
                 ),
                 Text(
                   value,
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: color,
+                    fontSize: 14,
                   ),
                 ),
               ],
@@ -705,7 +699,7 @@ class _HomePageState extends State<HomePage> {
 
   Widget _buildFilters(BuildContext context, StudentViewModel viewModel) {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
@@ -719,18 +713,8 @@ class _HomePageState extends State<HomePage> {
               children: [
                 Row(
                   children: [
-                    Icon(
-                      Icons.filter_list,
-                      color: Colors.blue.shade600,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Filter by Standard/Class/Division',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    const SizedBox(width: 4),
+
                     const Spacer(),
                     if (viewModel.selectedFilter != 'All')
                       TextButton(
@@ -739,9 +723,9 @@ class _HomePageState extends State<HomePage> {
                       ),
                   ],
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 4),
                 SizedBox(
-                  height: 40,
+                  height: 32,
                   child: ListView.builder(
                     scrollDirection: Axis.horizontal,
                     itemCount: viewModel.availableFilters.length,
@@ -750,7 +734,7 @@ class _HomePageState extends State<HomePage> {
                       final isSelected = viewModel.selectedFilter == filter;
                       if (filter.trim().isEmpty) return const SizedBox.shrink();
                       return Container(
-                        margin: const EdgeInsets.only(right: 8),
+                        margin: const EdgeInsets.only(right: 6),
                         child: FilterChip(
                           label: Text(
                             filter == 'All' ? 'All' : filter,
@@ -759,6 +743,7 @@ class _HomePageState extends State<HomePage> {
                                   ? Colors.white
                                   : Colors.blue.shade600,
                               fontWeight: FontWeight.w500,
+                              fontSize: 11,
                             ),
                           ),
                           selected: isSelected,
@@ -780,7 +765,7 @@ class _HomePageState extends State<HomePage> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 8),
           ],
 
           // Search Bar
@@ -1074,25 +1059,7 @@ class _HomePageState extends State<HomePage> {
     IconData icon,
     List<Widget> children,
   ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: Colors.blue.shade600, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ...children,
-      ],
-    );
+    return Column(crossAxisAlignment: CrossAxisAlignment.start);
   }
 
   Widget _buildFeeSection(BuildContext context, student) {

@@ -4,6 +4,8 @@ import '../viewmodels/student_viewmodel.dart';
 import '../services/audit_service.dart';
 import '../models/audit_log.dart';
 import '../models/student.dart';
+import 'package:intl/intl.dart';
+import 'package:flutter/rendering.dart';
 
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
@@ -12,7 +14,8 @@ class AnalyticsPage extends StatefulWidget {
   State<AnalyticsPage> createState() => _AnalyticsPageState();
 }
 
-class _AnalyticsPageState extends State<AnalyticsPage> {
+class _AnalyticsPageState extends State<AnalyticsPage>
+    with AutomaticKeepAliveClientMixin {
   String? selectedStandard;
   String? selectedYear;
   final AuditService _auditService = AuditService();
@@ -24,6 +27,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     super.initState();
     _loadAuditLogs();
   }
+
+  @override
+  bool get wantKeepAlive => true;
 
   Future<void> _loadAuditLogs() async {
     setState(() {
@@ -99,8 +105,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
     return Scaffold(
+      backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
         title: const Text('Analytics'),
         backgroundColor: Colors.blue.shade700,
@@ -134,7 +143,12 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             orElse: () => '',
           );
 
-          // Get unique filter values
+          // If no month/year columns, try to extract from a date column
+          String? dateCol = columns.firstWhere(
+            (c) => c.toLowerCase().contains('date'),
+            orElse: () => '',
+          );
+
           final schools = <String>{};
           final months = <String>{};
           final years = <String>{};
@@ -143,13 +157,27 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               final val = s.data[schoolCol]?.toString() ?? '';
               if (val.isNotEmpty) schools.add(val);
             }
-            if (monthCol.isNotEmpty) {
-              final val = s.data[monthCol]?.toString() ?? '';
-              if (val.isNotEmpty) months.add(val);
+            // Extract month/year from monthCol/yearCol or from dateCol
+            DateTime? date;
+            final dateStr = s.data[dateCol]?.toString() ?? '';
+            if (dateStr.isNotEmpty) {
+              date = DateTime.tryParse(dateStr);
+              if (date == null) {
+                // Try DD/MM/YYYY
+                try {
+                  date = DateFormat('dd/MM/yyyy').parseStrict(dateStr);
+                } catch (_) {}
+              }
+              if (date == null) {
+                // Try MM/DD/YYYY
+                try {
+                  date = DateFormat('MM/dd/yyyy').parseStrict(dateStr);
+                } catch (_) {}
+              }
             }
-            if (yearCol.isNotEmpty) {
-              final val = s.data[yearCol]?.toString() ?? '';
-              if (val.isNotEmpty) years.add(val);
+            if (date != null) {
+              months.add('${date.month}'.padLeft(2, '0'));
+              years.add('${date.year}');
             }
           }
 
@@ -168,16 +196,33 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                     selectedSchool == null ||
                     selectedSchool == '' ||
                     s.data[schoolCol]?.toString() == selectedSchool;
-                final monthOk =
-                    monthCol.isEmpty ||
-                    selectedMonth == null ||
-                    selectedMonth == '' ||
-                    s.data[monthCol]?.toString() == selectedMonth;
-                final yearOk =
-                    yearCol.isEmpty ||
-                    selectedYear == null ||
-                    selectedYear == '' ||
-                    s.data[yearCol]?.toString() == selectedYear;
+                // Month/year filter: check monthCol/yearCol or extract from dateCol
+                bool monthOk = true;
+                bool yearOk = true;
+                if (selectedMonth != null && selectedMonth != '') {
+                  if (monthCol.isNotEmpty) {
+                    monthOk = s.data[monthCol]?.toString() == selectedMonth;
+                  } else if (dateCol.isNotEmpty) {
+                    final dateStr = s.data[dateCol]?.toString() ?? '';
+                    if (dateStr.isNotEmpty) {
+                      final date = DateTime.tryParse(dateStr);
+                      monthOk =
+                          date != null &&
+                          '${date.month}'.padLeft(2, '0') == selectedMonth;
+                    }
+                  }
+                }
+                if (selectedYear != null && selectedYear != '') {
+                  if (yearCol.isNotEmpty) {
+                    yearOk = s.data[yearCol]?.toString() == selectedYear;
+                  } else if (dateCol.isNotEmpty) {
+                    final dateStr = s.data[dateCol]?.toString() ?? '';
+                    if (dateStr.isNotEmpty) {
+                      final date = DateTime.tryParse(dateStr);
+                      yearOk = date != null && '${date.year}' == selectedYear;
+                    }
+                  }
+                }
                 return schoolOk && monthOk && yearOk;
               }).toList();
 
@@ -195,141 +240,276 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 }
               }
 
-              return Padding(
-                padding: const EdgeInsets.all(16.0),
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Always show overall total income
-                    Text(
-                      'Overall Total Income: ₹${students.fold<double>(0.0, (sum, s) {
-                        String? paidCol = columns.firstWhere((c) => c.toLowerCase().contains('paid'), orElse: () => '');
-                        if (paidCol != null && paidCol.isNotEmpty) {
-                          return sum + (double.tryParse(s.data[paidCol]?.toString() ?? '') ?? 0.0);
-                        }
-                        return sum;
-                      }).toStringAsFixed(2)}',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        color: Colors.blue.shade700,
-                        fontWeight: FontWeight.bold,
+                    // Overall Total Income Card
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                        border: Border.all(color: Colors.grey.shade200),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.bar_chart,
+                            color: Colors.blue.shade700,
+                            size: 28,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Overall Total Income: ₹${students.fold<double>(0.0, (sum, s) {
+                                String? paidCol = columns.firstWhere((c) => c.toLowerCase().contains('paid'), orElse: () => '');
+                                if (paidCol != null && paidCol.isNotEmpty) {
+                                  return sum + (double.tryParse(s.data[paidCol]?.toString() ?? '') ?? 0.0);
+                                }
+                                return sum;
+                              }).toStringAsFixed(2)}',
+                              style: textTheme.titleLarge?.copyWith(
+                                color: Colors.blue.shade700,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 16),
-                    if (schoolCol.isNotEmpty && schools.isNotEmpty)
-                      DropdownButton<String>(
-                        value: selectedSchool,
-                        hint: const Text('Select School'),
-                        items: schools
-                            .map(
-                              (s) => DropdownMenuItem(value: s, child: Text(s)),
-                            )
-                            .toList(),
-                        onChanged: (val) =>
-                            setState(() => selectedSchool = val),
+                    // Filters Card
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 20),
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 8,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                        border: Border.all(color: Colors.grey.shade200),
                       ),
-                    if (monthCol.isNotEmpty &&
-                        months.isNotEmpty &&
-                        selectedSchool != null)
-                      DropdownButton<String>(
-                        value: selectedMonth,
-                        hint: const Text('Select Month'),
-                        items:
-                            [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('All Months'),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (schoolCol.isNotEmpty && schools.isNotEmpty)
+                            DropdownButton<String>(
+                              isExpanded: true,
+                              value: selectedSchool,
+                              hint: const Text('Select School'),
+                              dropdownColor: Colors.white,
+                              iconEnabledColor: Colors.blue.shade700,
+                              style: textTheme.titleMedium?.copyWith(
+                                color: Colors.blue.shade700,
                               ),
-                            ] +
-                            months
-                                .map(
-                                  (m) => DropdownMenuItem(
-                                    value: m,
-                                    child: Text(m),
-                                  ),
-                                )
-                                .toList(),
-                        onChanged: (val) => setState(() => selectedMonth = val),
-                      ),
-                    if (yearCol.isNotEmpty &&
-                        years.isNotEmpty &&
-                        selectedSchool != null)
-                      DropdownButton<String>(
-                        value: selectedYear,
-                        hint: const Text('Select Year'),
-                        items:
-                            [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text('All Years'),
+                              items: schools
+                                  .map(
+                                    (s) => DropdownMenuItem(
+                                      value: s,
+                                      child: Text(
+                                        s,
+                                        style: textTheme.titleMedium?.copyWith(
+                                          color: Colors.blue.shade700,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                  .toList(),
+                              onChanged: (val) =>
+                                  setState(() => selectedSchool = val),
+                            ),
+                          if (monthCol.isNotEmpty &&
+                              months.isNotEmpty &&
+                              selectedSchool != null)
+                            DropdownButton<String>(
+                              isExpanded: true,
+                              value: selectedMonth,
+                              hint: const Text('Select Month'),
+                              dropdownColor: Colors.white,
+                              iconEnabledColor: Colors.blue.shade700,
+                              style: textTheme.titleMedium?.copyWith(
+                                color: Colors.blue.shade700,
                               ),
-                            ] +
-                            years
-                                .map(
-                                  (y) => DropdownMenuItem(
-                                    value: y,
-                                    child: Text(y),
-                                  ),
-                                )
-                                .toList(),
-                        onChanged: (val) => setState(() => selectedYear = val),
+                              items:
+                                  [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('All Months'),
+                                    ),
+                                  ] +
+                                  months
+                                      .map(
+                                        (m) => DropdownMenuItem(
+                                          value: m,
+                                          child: Text(
+                                            m,
+                                            style: textTheme.titleMedium
+                                                ?.copyWith(
+                                                  color: Colors.blue.shade700,
+                                                ),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: (val) =>
+                                  setState(() => selectedMonth = val),
+                            ),
+                          if (yearCol.isNotEmpty &&
+                              years.isNotEmpty &&
+                              selectedSchool != null)
+                            DropdownButton<String>(
+                              isExpanded: true,
+                              value: selectedYear,
+                              hint: const Text('Select Year'),
+                              dropdownColor: Colors.white,
+                              iconEnabledColor: Colors.blue.shade700,
+                              style: textTheme.titleMedium?.copyWith(
+                                color: Colors.blue.shade700,
+                              ),
+                              items:
+                                  [
+                                    const DropdownMenuItem(
+                                      value: '',
+                                      child: Text('All Years'),
+                                    ),
+                                  ] +
+                                  years
+                                      .map(
+                                        (y) => DropdownMenuItem(
+                                          value: y,
+                                          child: Text(
+                                            y,
+                                            style: textTheme.titleMedium
+                                                ?.copyWith(
+                                                  color: Colors.blue.shade700,
+                                                ),
+                                          ),
+                                        ),
+                                      )
+                                      .toList(),
+                              onChanged: (val) =>
+                                  setState(() => selectedYear = val),
+                            ),
+                        ],
                       ),
+                    ),
                     if (selectedSchool == null)
-                      const Padding(
-                        padding: EdgeInsets.only(top: 32),
+                      Container(
+                        margin: const EdgeInsets.only(top: 32),
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
                         child: Center(
                           child: Text(
                             'Please select a school to view analytics.',
-                            style: TextStyle(fontSize: 18, color: Colors.grey),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              color: Colors.grey,
+                            ),
                           ),
                         ),
                       ),
                     if (selectedSchool != null) ...[
-                      const SizedBox(height: 24),
-                      Text(
-                        'Filtered Total Income: ₹${totalIncome.toStringAsFixed(2)}',
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: Colors.green.shade700,
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 20),
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.06),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                          border: Border.all(color: Colors.grey.shade200),
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                      Expanded(
-                        child: ListView.builder(
-                          itemCount: filtered.length,
-                          itemBuilder: (context, idx) {
-                            final s = filtered[idx];
-                            return Card(
-                              child: ListTile(
-                                title: Text(s.name),
-                                subtitle: Text(
-                                  s.data[schoolCol]?.toString() ?? '',
-                                ),
-                                trailing: Text(
-                                  () {
-                                    double paid = 0.0;
-                                    if (columns.any(
-                                      (c) => c.toLowerCase().contains('paid'),
-                                    )) {
-                                      final paidCol = columns.firstWhere(
-                                        (c) => c.toLowerCase().contains('paid'),
-                                      );
-                                      paid =
-                                          double.tryParse(
-                                            s.data[paidCol]?.toString() ?? '',
-                                          ) ??
-                                          0.0;
-                                    }
-                                    return '₹${paid.toStringAsFixed(2)}';
-                                  }(),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const SizedBox(height: 16),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: filtered.length,
+                              itemBuilder: (context, idx) {
+                                final s = filtered[idx];
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: Colors.grey.shade200,
+                                    ),
                                   ),
-                                ),
-                              ),
-                            );
-                          },
+                                  child: ListTile(
+                                    title: Text(
+                                      s.name,
+                                      style: textTheme.titleMedium?.copyWith(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    subtitle: Text(
+                                      s.data[schoolCol]?.toString() ?? '',
+                                    ),
+                                    trailing: Text(
+                                      () {
+                                        double paid = 0.0;
+                                        if (columns.any(
+                                          (c) =>
+                                              c.toLowerCase().contains('paid'),
+                                        )) {
+                                          final paidCol = columns.firstWhere(
+                                            (c) => c.toLowerCase().contains(
+                                              'paid',
+                                            ),
+                                          );
+                                          paid =
+                                              double.tryParse(
+                                                s.data[paidCol]?.toString() ??
+                                                    '',
+                                              ) ??
+                                              0.0;
+                                        }
+                                        return '₹${paid.toStringAsFixed(2)}';
+                                      }(),
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 24),
                     ],
                     // Always show audit logs section
                     _buildAuditLogsSection(),
@@ -344,80 +524,104 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   Widget _buildAuditLogsSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              'Recent Activity',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: Colors.blue.shade700,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            Row(
-              children: [
-                if (_auditLogs.isNotEmpty)
-                  IconButton(
-                    onPressed: () async {
-                      final confirmed = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('Clear Activity Log'),
-                          content: const Text(
-                            'Are you sure you want to clear all activity logs?',
-                          ),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.of(context).pop(false),
-                              child: const Text('Cancel'),
-                            ),
-                            ElevatedButton(
-                              onPressed: () => Navigator.of(context).pop(true),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                foregroundColor: Colors.white,
-                              ),
-                              child: const Text('Clear'),
-                            ),
-                          ],
-                        ),
-                      );
-
-                      if (confirmed == true) {
-                        await _auditService.clearLogs();
-                        await _loadAuditLogs();
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Activity logs cleared'),
-                              backgroundColor: Colors.orange,
-                            ),
-                          );
-                        }
-                      }
-                    },
-                    icon: const Icon(Icons.clear_all),
-                    tooltip: 'Clear all logs',
-                    color: Colors.red.shade600,
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 20),
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(Icons.history, color: Colors.blue.shade700),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Recent Activity',
+                    style: textTheme.titleMedium?.copyWith(
+                      color: Colors.blue.shade700,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                IconButton(
-                  onPressed: _loadAuditLogs,
-                  icon: const Icon(Icons.refresh),
-                  tooltip: 'Refresh',
-                ),
-              ],
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
-        if (_isLoadingLogs)
-          const Center(child: CircularProgressIndicator())
-        else if (_auditLogs.isEmpty)
-          Card(
-            child: Padding(
+                ],
+              ),
+              Row(
+                children: [
+                  if (_auditLogs.isNotEmpty)
+                    IconButton(
+                      onPressed: () async {
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (context) => AlertDialog(
+                            title: const Text('Clear Activity Log'),
+                            content: const Text(
+                              'Are you sure you want to clear all activity logs?',
+                            ),
+                            actions: [
+                              TextButton(
+                                onPressed: () =>
+                                    Navigator.of(context).pop(false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () =>
+                                    Navigator.of(context).pop(true),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                  foregroundColor: Colors.white,
+                                ),
+                                child: const Text('Clear'),
+                              ),
+                            ],
+                          ),
+                        );
+
+                        if (confirmed == true) {
+                          await _auditService.clearLogs();
+                          await _loadAuditLogs();
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Activity logs cleared'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.clear_all),
+                      tooltip: 'Clear all logs',
+                      color: Colors.red.shade600,
+                    ),
+                  IconButton(
+                    onPressed: _loadAuditLogs,
+                    icon: Icon(Icons.refresh, color: Colors.blue.shade700),
+                    tooltip: 'Refresh',
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          if (_isLoadingLogs)
+            const Center(child: CircularProgressIndicator())
+          else if (_auditLogs.isEmpty)
+            Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 children: [
@@ -429,59 +633,64 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   ),
                 ],
               ),
-            ),
-          )
-        else
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _auditLogs.length,
-            itemBuilder: (context, index) {
-              final log = _auditLogs[index];
-              return Card(
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: _getActionColor(log.action),
-                    child: Icon(
-                      _getActionIcon(log.action),
-                      color: Colors.white,
-                      size: 20,
+            )
+          else
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _auditLogs.length,
+              itemBuilder: (context, index) {
+                final log = _auditLogs[index];
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: ListTile(
+                    leading: CircleAvatar(
+                      backgroundColor: _getActionColor(log.action),
+                      child: Icon(
+                        _getActionIcon(log.action),
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
-                  ),
-                  title: Text(
-                    '${log.actionDisplay} ${log.studentName}',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(log.timeAgo),
-                      if (log.action == 'update')
-                        Text(
-                          'Updated student information',
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
+                    title: Text(
+                      '${log.actionDisplay} ${log.studentName}',
+                      style: textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(log.timeAgo),
+                        if (log.action == 'update')
+                          Text(
+                            'Updated student information',
+                            style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12,
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
+                    trailing: log.action != 'add'
+                        ? IconButton(
+                            onPressed: () => _undoAction(log),
+                            icon: const Icon(Icons.undo),
+                            tooltip: 'Undo',
+                            color: Colors.orange.shade600,
+                          )
+                        : null,
                   ),
-                  trailing:
-                      log.action !=
-                          'add' // Can't undo add operations
-                      ? IconButton(
-                          onPressed: () => _undoAction(log),
-                          icon: const Icon(Icons.undo),
-                          tooltip: 'Undo',
-                          color: Colors.orange.shade600,
-                        )
-                      : null,
-                ),
-              );
-            },
-          ),
-      ],
+                );
+              },
+            ),
+        ],
+      ),
     );
   }
 

@@ -10,6 +10,8 @@ import 'views/home_page.dart';
 import 'views/login_page.dart';
 import 'views/analytics_page.dart';
 import 'views/teachers_page.dart';
+import 'package:animations/animations.dart';
+
 import '../models/teacher.dart';
 
 void main() async {
@@ -36,7 +38,7 @@ class MyApp extends StatelessWidget {
       ],
       child: MaterialApp(
         title: 'Student Fee Manager',
-        theme: ThemeData(),
+
         home: const AuthWrapper(),
         debugShowCheckedModeBanner: false,
       ),
@@ -80,6 +82,7 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold> {
   int _selectedIndex = 0;
+  late final PageController _pageController;
 
   static const List<Widget> _pages = <Widget>[
     HomePage(),
@@ -88,14 +91,45 @@ class _MainScaffoldState extends State<MainScaffold> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _pageController = PageController(initialPage: _selectedIndex);
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _pages[_selectedIndex],
+      body: PageView(
+        controller: _pageController,
+        onPageChanged: (index) {
+          setState(() {
+            _selectedIndex = index;
+          });
+        },
+        children: _pages,
+        physics: const BouncingScrollPhysics(),
+      ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
+        selectedItemColor: Colors.blue.shade700,
+        unselectedItemColor: Colors.blue.shade200,
+        backgroundColor: Colors.white,
+        elevation: 12,
+        type: BottomNavigationBarType.fixed,
         onTap: (index) {
           setState(() {
             _selectedIndex = index;
+            _pageController.animateToPage(
+              index,
+              duration: const Duration(milliseconds: 350),
+              curve: Curves.ease,
+            );
           });
         },
         items: const [

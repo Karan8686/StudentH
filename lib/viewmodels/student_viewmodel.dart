@@ -290,199 +290,77 @@ class StudentViewModel extends ChangeNotifier {
     }
   }
 
+  // Add this top-level function for compute
+  Map<String, dynamic> _parseExcelInBackground(Map<String, dynamic> args) {
+    final Uint8List fileBytes = args['fileBytes'];
+    final String fileName = args['fileName'];
+    final excel = Excel.decodeBytes(fileBytes);
+    final sheetNames = excel.tables.keys.toList();
+    if (sheetNames.isEmpty) {
+      throw Exception('Excel file contains no sheets');
+    }
+    final sheet = excel.tables[sheetNames.first];
+    if (sheet == null) {
+      throw Exception('Could not access the first sheet');
+    }
+    // Extract headers from first row
+    final List<String> columns = [];
+    final headerRow = sheet.row(0);
+    for (int col = 0; col < sheet.maxColumns; col++) {
+      String columnName = '';
+      if (col < headerRow.length) {
+        final cellValue = headerRow[col];
+        if (cellValue != null && cellValue.value != null) {
+          columnName = cellValue.value.toString().trim();
+        }
+      }
+      if (columnName.isEmpty) {
+        columnName = 'Column_${col + 1}';
+      }
+      columns.add(columnName);
+    }
+    // Parse data rows
+    final List<Map<String, dynamic>> students = [];
+    final totalRows = sheet.maxRows;
+    for (int row = 1; row < totalRows; row++) {
+      final rowData = <String, dynamic>{};
+      bool hasData = false;
+      final currentRow = sheet.row(row);
+      for (int col = 0; col < columns.length; col++) {
+        String value = '';
+        if (col < currentRow.length) {
+          final cellValue = currentRow[col];
+          if (cellValue != null && cellValue.value != null) {
+            value = cellValue.value.toString().trim();
+            if (value.isNotEmpty) hasData = true;
+          }
+        }
+        rowData[columns[col]] = value;
+      }
+      if (hasData) {
+        final studentId = 'row_${row}_${DateTime.now().millisecondsSinceEpoch}';
+        rowData['id'] = studentId;
+        students.add(rowData);
+      }
+    }
+    return {'columns': columns, 'students': students, 'fileName': fileName};
+  }
+
   // Parse Excel file
   Future<void> parseExcelFile(Uint8List fileBytes, String fileName) async {
     try {
       _isLoading = true;
       _error = null;
       notifyListeners();
-
-      print('DEBUG: Starting Excel parsing for file: $fileName');
-      print('DEBUG: File size: ${fileBytes.length} bytes');
-
-      // Validate file size
-      if (fileBytes.length == 0) {
-        _error = 'Excel file is empty';
-        return;
-      }
-
-      // Check file size (warn if > 10MB)
-      if (fileBytes.length > 10 * 1024 * 1024) {
-        print(
-          'DEBUG: Large file detected (${(fileBytes.length / 1024 / 1024).toStringAsFixed(1)}MB)',
-        );
-      }
-
-      // Check if file has Excel signature
-      if (fileBytes.length < 4) {
-        _error = 'File is too small to be a valid Excel file';
-        return;
-      }
-
-      // Check for Excel file signatures
-      final signature = fileBytes.take(4).toList();
-      final isXlsx =
-          signature[0] == 0x50 && signature[1] == 0x4B; // PK (ZIP signature)
-
-      if (!isXlsx) {
-        print('DEBUG: File does not appear to be a valid XLSX file');
-        print(
-          'DEBUG: File signature: ${signature.map((b) => '0x${b.toRadixString(16).padLeft(2, '0')}').join(' ')}',
-        );
-        // Continue anyway as the Excel package might still be able to handle it
-      } else {
-        print('DEBUG: File appears to be a valid XLSX file');
-      }
-
-      print('DEBUG: About to decode Excel file...');
-      Excel? excel;
-
-      // Try to decode the Excel file with better error handling
-      try {
-        excel = Excel.decodeBytes(fileBytes);
-        print('DEBUG: Excel file decoded successfully');
-      } catch (e) {
-        print('DEBUG: First attempt failed, trying alternative approach...');
-
-        // Try alternative approach - create a new Excel instance first
-        try {
-          excel = Excel.createExcel();
-          // Try to decode again
-          excel = Excel.decodeBytes(fileBytes);
-          print('DEBUG: Excel file decoded successfully on second attempt');
-        } catch (e2) {
-          print('DEBUG: Second attempt also failed: $e2');
-        }
-
-        print('DEBUG: Error decoding Excel file: $e');
-
-        // Try to provide more specific error messages based on the error type
-        if (e.toString().contains('Null check operator')) {
-          _error =
-              'Excel file parsing error detected.\n\n'
-              'This specific file appears to have a format that the Excel parser cannot handle properly. '
-              'This is a known issue with some Excel files, especially those with:\n'
-              '• Complex formatting\n'
-              '• Merged cells\n'
-              '• Special characters\n'
-              '• Large datasets\n\n'
-              'Please try the following solutions:\n'
-              '1. Open the file in Excel and save it as a new .xlsx file\n'
-              '2. Remove any merged cells or complex formatting\n'
-              '3. Try exporting the data as CSV and then converting to Excel\n'
-              '4. Use a different Excel file with simpler formatting\n\n'
-              'If the problem persists, please contact support with the file details.';
-        } else {
-          _error =
-              'Unable to parse Excel file: $e\n\n'
-              'Please ensure the file is a valid Excel (.xlsx) file and try again.';
-        }
-        return;
-      }
-
-      if (excel == null || excel.tables.isEmpty) {
-        _error = 'Excel file is invalid or corrupted';
-        return;
-      }
-
-      final sheetNames = excel.tables.keys.toList();
-      print('DEBUG: Found ${sheetNames.length} sheets: $sheetNames');
-
-      if (sheetNames.isEmpty) {
-        _error = 'Excel file contains no sheets';
-        return;
-      }
-
-      print('DEBUG: About to access sheet: ${sheetNames.first}');
-      final sheet = excel.tables[sheetNames.first];
-      print('DEBUG: Sheet accessed successfully');
-
-      if (sheet == null) {
-        _error = 'Could not access the first sheet';
-        return;
-      }
-
-      print(
-        'DEBUG: Successfully decoded Excel file with ${sheetNames.length} sheets',
-      );
-      print('DEBUG: Using sheet: ${sheetNames.first}');
-
-      print(
-        'DEBUG: Sheet dimensions - Rows: ${sheet.maxRows}, Columns: ${sheet.maxColumns}',
-      );
-
-      if (sheet.maxRows == 0) {
-        _error = 'Excel file is empty';
-        return;
-      }
-
-      // Warn about very large datasets
-      if (sheet.maxRows > 50000) {
-        print('DEBUG: Very large dataset detected: ${sheet.maxRows} rows');
-      }
-
-      // Extract headers from first row with null safety
-      _columns = [];
-      print('DEBUG: About to access header row...');
-      final headerRow = sheet.row(0);
-      print('DEBUG: Header row accessed successfully');
-      print('DEBUG: Header row length: [38;5;2m${headerRow.length}[0m');
-
-      // Generate headers, using default names for missing/empty
-      for (int col = 0; col < sheet.maxColumns; col++) {
-        String columnName = '';
-        if (col < headerRow.length) {
-          final cellValue = headerRow[col];
-          if (cellValue != null && cellValue.value != null) {
-            columnName = cellValue.value.toString().trim();
-          }
-        }
-        if (columnName.isEmpty) {
-          columnName = 'Column_${col + 1}';
-        }
-        _columns.add(columnName);
-      }
-      print('DEBUG: Extracted ${_columns.length} columns: $_columns');
-
-      // Parse data rows with progress tracking
-      _students = [];
-      final totalRows = sheet.maxRows;
-      int processedRows = 0;
-      print('DEBUG: Starting to process $totalRows rows');
-      for (int row = 1; row < totalRows; row++) {
-        try {
-          final rowData = <String, dynamic>{};
-          bool hasData = false;
-          final currentRow = sheet.row(row);
-          for (int col = 0; col < _columns.length; col++) {
-            String value = '';
-            if (col < currentRow.length) {
-              final cellValue = currentRow[col];
-              if (cellValue != null && cellValue.value != null) {
-                value = cellValue.value.toString().trim();
-                if (value.isNotEmpty) hasData = true;
-              }
-            }
-            rowData[_columns[col]] = value;
-          }
-          if (hasData) {
-            final studentId =
-                'row_${row}_${DateTime.now().millisecondsSinceEpoch}';
-            _students.add(Student.fromMap(rowData, studentId));
-          }
-          processedRows++;
-          if (processedRows % 1000 == 0) {
-            print('DEBUG: Processed $processedRows/$totalRows rows');
-            notifyListeners();
-          }
-        } catch (rowError) {
-          print('DEBUG: Error processing row $row: $rowError');
-          continue;
-        }
-      }
-      print(
-        'DEBUG: Successfully processed ${_students.length} students from $processedRows rows',
-      );
+      // Offload parsing to background isolate
+      final result = await compute(_parseExcelInBackground, {
+        'fileBytes': fileBytes,
+        'fileName': fileName,
+      });
+      _columns = List<String>.from(result['columns']);
+      _students = (result['students'] as List)
+          .map((rowData) => Student.fromMap(rowData, rowData['id'] as String))
+          .toList();
       _fileName = fileName;
       await _saveDataToLocal();
       // Upload Excel file to cloud storage if authenticated

@@ -13,6 +13,11 @@ class TeacherViewModel extends ChangeNotifier {
   String? get error => _error;
 
   Future<void> loadTeachers() async {
+    if (_teachers.isNotEmpty) {
+      _isLoading = false;
+      notifyListeners();
+      return;
+    }
     _isLoading = true;
     notifyListeners();
     try {

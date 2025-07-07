@@ -4,6 +4,7 @@ import '../viewmodels/teacher_viewmodel.dart';
 import 'teacher_detail_page.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
+import 'package:flutter/rendering.dart';
 
 class TeachersPage extends StatefulWidget {
   const TeachersPage({Key? key}) : super(key: key);
@@ -11,15 +12,49 @@ class TeachersPage extends StatefulWidget {
   State<TeachersPage> createState() => _TeachersPageState();
 }
 
-class _TeachersPageState extends State<TeachersPage> {
+class _TeachersPageState extends State<TeachersPage>
+    with TickerProviderStateMixin, AutomaticKeepAliveClientMixin {
   final Map<String, List<Lecture>> _lectures = {};
   bool _isSaving = false;
+  late AnimationController _animationController;
+  late AnimationController _fadeSlideController;
+  late Animation<Offset> _slideAnimation;
+  late Animation<double> _fadeAnimation;
 
   @override
   void initState() {
     super.initState();
+    _animationController = AnimationController(
+      duration: const Duration(milliseconds: 600),
+      vsync: this,
+    );
+    _fadeSlideController = AnimationController(
+      duration: const Duration(milliseconds: 500),
+      vsync: this,
+    );
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0.2, 0), end: Offset.zero).animate(
+          CurvedAnimation(
+            parent: _fadeSlideController,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+    _fadeAnimation = CurvedAnimation(
+      parent: _fadeSlideController,
+      curve: Curves.easeIn,
+    );
     _loadTeachersAndLectures();
   }
+
+  @override
+  void dispose() {
+    _animationController.dispose();
+    _fadeSlideController.dispose();
+    super.dispose();
+  }
+
+  @override
+  bool get wantKeepAlive => true;
 
   Future<void> _loadTeachersAndLectures() async {
     final viewModel = Provider.of<TeacherViewModel>(context, listen: false);
@@ -35,6 +70,7 @@ class _TeachersPageState extends State<TeachersPage> {
       _lectures.clear();
       _lectures.addAll(lecturesMap);
     });
+    _animationController.forward();
   }
 
   Future<void> _refreshTeachers() async {
@@ -56,7 +92,33 @@ class _TeachersPageState extends State<TeachersPage> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setStateDialog) => AlertDialog(
-          title: Text(isEdit ? 'Edit Teacher' : 'Add Teacher'),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(
+                  isEdit ? Icons.edit : Icons.person_add,
+                  color: Colors.blue.shade700,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                isEdit ? 'Edit Teacher' : 'Add Teacher',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
           content: Form(
             key: formKey,
             child: Column(
@@ -64,24 +126,44 @@ class _TeachersPageState extends State<TeachersPage> {
               children: [
                 TextFormField(
                   controller: nameController,
-                  decoration: const InputDecoration(labelText: 'Name'),
-                  validator: (val) =>
-                      val == null || val.trim().isEmpty ? 'Required' : null,
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: subjectsController,
-                  decoration: const InputDecoration(
-                    labelText: 'Subjects (space separated)',
+                  decoration: InputDecoration(
+                    labelText: 'Name',
+                    prefixIcon: const Icon(Icons.person_outline),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
                   ),
                   validator: (val) =>
                       val == null || val.trim().isEmpty ? 'Required' : null,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 16),
+                TextFormField(
+                  controller: subjectsController,
+                  decoration: InputDecoration(
+                    labelText: 'Subjects (space separated)',
+                    prefixIcon: const Icon(Icons.school_outlined),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
+                  ),
+                  validator: (val) =>
+                      val == null || val.trim().isEmpty ? 'Required' : null,
+                ),
+                const SizedBox(height: 16),
                 TextFormField(
                   controller: rateController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Per Hour Rate (₹)',
+                    prefixIcon: const Icon(Icons.currency_rupee),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    filled: true,
+                    fillColor: Colors.grey.shade50,
                   ),
                   keyboardType: TextInputType.number,
                   validator: (val) {
@@ -145,6 +227,13 @@ class _TeachersPageState extends State<TeachersPage> {
                         }
                       }
                     },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue.shade700,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
               child: Text(isEdit ? 'Save' : 'Add'),
             ),
           ],
@@ -157,6 +246,7 @@ class _TeachersPageState extends State<TeachersPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         title: const Text('Delete Teacher'),
         content: Text('Are you sure you want to delete ${teacher.name}?'),
         actions: [
@@ -166,10 +256,14 @@ class _TeachersPageState extends State<TeachersPage> {
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
+              backgroundColor: Colors.red.shade600,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
             ),
+            child: const Text('Delete'),
           ),
         ],
       ),
@@ -182,14 +276,20 @@ class _TeachersPageState extends State<TeachersPage> {
           listen: false,
         ).deleteTeacher(teacher.id);
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Teacher deleted')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Teacher deleted successfully'),
+            backgroundColor: Colors.green.shade600,
+          ),
+        );
       } catch (e) {
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error deleting teacher: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error deleting teacher: $e'),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
       }
     }
   }
@@ -201,373 +301,559 @@ class _TeachersPageState extends State<TeachersPage> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
     return Consumer<TeacherViewModel>(
       builder: (context, viewModel, child) {
         final teachers = viewModel.teachers;
+        if (!viewModel.isLoading) {
+          _fadeSlideController.forward();
+        } else {
+          _fadeSlideController.reset();
+        }
         return Scaffold(
+          backgroundColor: Colors.grey.shade50,
           appBar: AppBar(
             title: Text(
               'Teachers',
               style: textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
+                fontWeight: FontWeight.w600,
+                color: Colors.white,
               ),
             ),
             backgroundColor: Colors.blue.shade700,
             foregroundColor: Colors.white,
-            elevation: 2,
+            elevation: 0,
           ),
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (viewModel.error != null)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(
-                    viewModel.error!,
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.error,
-                    ),
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.red.shade200),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.error_outline, color: Colors.red.shade600),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          viewModel.error!,
+                          style: textTheme.bodyMedium?.copyWith(
+                            color: Colors.red.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              if (viewModel.isLoading) _buildShimmerLoader(theme),
-              if (!viewModel.isLoading && teachers.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    'No teachers yet. Tap + to add.',
-                    style: textTheme.bodyLarge,
+              if (!viewModel.isLoading && teachers.isNotEmpty)
+                Container(
+                  margin: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 4,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.group_outlined,
+                        color: Colors.blue.shade700,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Teachers (${teachers.length})',
+                        style: textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: Colors.blue.shade700,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              const Divider(),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  'All Teachers',
-                  style: textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
               Expanded(
-                child: ListView.builder(
-                  physics: const BouncingScrollPhysics(),
-                  itemCount: teachers.length,
-                  padding: const EdgeInsets.only(bottom: 80),
-                  itemBuilder: (context, idx) {
-                    final teacher = teachers[idx];
-                    final totalSalary = _teacherTotalSalary(teacher.id);
-                    final lectures = _lectures[teacher.id] ?? [];
-                    final color = colorScheme.primary.withOpacity(
-                      0.8 - (idx % 3) * 0.2,
-                    );
-                    return GestureDetector(
-                      onTap: () async {
-                        final result = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => TeacherDetailPage(
-                              teacher: teacher,
-                              lectures: List<Lecture>.from(
-                                _lectures[teacher.id] ?? [],
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 500),
+                  switchInCurve: Curves.easeOutCubic,
+                  switchOutCurve: Curves.easeInCubic,
+                  child: viewModel.isLoading
+                      ? _buildShimmerLoader(
+                          theme,
+                          viewModel.teachers.isNotEmpty
+                              ? viewModel.teachers.length
+                              : 2,
+                        )
+                      : teachers.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.school_outlined,
+                                size: 80,
+                                color: Colors.grey.shade400,
                               ),
-                              onLecturesUpdated: (teacherId, updatedLectures) {
-                                setState(() {
-                                  _lectures[teacherId] = updatedLectures;
-                                });
+                              const SizedBox(height: 16),
+                              Text(
+                                'No teachers yet',
+                                style: textTheme.headlineSmall?.copyWith(
+                                  color: Colors.grey.shade600,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'Add your first teacher to get started',
+                                style: textTheme.bodyLarge?.copyWith(
+                                  color: Colors.grey.shade500,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : FadeTransition(
+                          opacity: _fadeAnimation,
+                          child: SlideTransition(
+                            position: _slideAnimation,
+                            child: ListView.builder(
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: teachers.length,
+                              padding: const EdgeInsets.only(
+                                bottom: 80,
+                                left: 16,
+                                right: 16,
+                              ),
+                              itemBuilder: (context, idx) {
+                                final teacher = teachers[idx];
+                                return _buildTeacherCard(
+                                  teacher,
+                                  idx,
+                                  theme,
+                                  colorScheme,
+                                  textTheme,
+                                );
                               },
                             ),
                           ),
-                        );
-                        if (result == true) {
-                          final firebaseService = FirebaseService();
-                          final latestLectures = await firebaseService
-                              .getLectures(teacher.id);
-                          setState(() {
-                            _lectures[teacher.id] = latestLectures;
-                          });
-                        }
-                      },
-                      child: Container(
-                        margin: const EdgeInsets.only(
-                          bottom: 16,
-                          left: 12,
-                          right: 12,
                         ),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.grey.shade300,
-                              blurRadius: 8,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                          border: Border.all(color: Colors.grey.shade200),
-                        ),
-                        child: Column(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: const BorderRadius.only(
-                                  topLeft: Radius.circular(12),
-                                  topRight: Radius.circular(12),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  Hero(
-                                    tag: 'teacher_avatar_${teacher.id}',
-                                    child: CircleAvatar(
-                                      backgroundColor: Colors.blue.shade100,
-                                      radius: 26,
-                                      child: Text(
-                                        teacher.name.isNotEmpty
-                                            ? teacher.name[0].toUpperCase()
-                                            : '?',
-                                        style: textTheme.titleLarge?.copyWith(
-                                          color: Colors.blue.shade700,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Expanded(
-                                              child: Text(
-                                                teacher.name,
-                                                style: textTheme.titleLarge
-                                                    ?.copyWith(
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                              ),
-                                            ),
-                                            if (teacher.subjects.isNotEmpty)
-                                              Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 8,
-                                                      vertical: 4,
-                                                    ),
-                                                decoration: BoxDecoration(
-                                                  color: Colors.green.shade600,
-                                                  borderRadius:
-                                                      BorderRadius.circular(12),
-                                                ),
-                                                child: Text(
-                                                  teacher.subjects.first,
-                                                  style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontSize: 12,
-                                                    fontWeight: FontWeight.bold,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        if (lectures.isNotEmpty) ...[
-                                          const SizedBox(height: 4),
-                                          Text(
-                                            '${lectures.length} lecture${lectures.length == 1 ? '' : 's'}',
-                                            style: textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  color: Colors.grey.shade600,
-                                                ),
-                                          ),
-                                        ],
-                                      ],
-                                    ),
-                                  ),
-                                  Row(
-                                    children: [
-                                      IconButton(
-                                        onPressed: () =>
-                                            _showAddOrEditTeacherDialog(
-                                              teacher: teacher,
-                                            ),
-                                        icon: Icon(
-                                          Icons.edit,
-                                          color: Colors.blue.shade600,
-                                        ),
-                                        tooltip: 'Edit',
-                                      ),
-                                      IconButton(
-                                        onPressed: () =>
-                                            _deleteTeacher(context, teacher),
-                                        icon: Icon(
-                                          Icons.delete,
-                                          color: Colors.red.shade600,
-                                        ),
-                                        tooltip: 'Delete',
-                                      ),
-                                      PopupMenuButton<String>(
-                                        onSelected: (value) {
-                                          if (value == 'edit') {
-                                            _showAddOrEditTeacherDialog(
-                                              teacher: teacher,
-                                            );
-                                          } else if (value == 'delete') {
-                                            _deleteTeacher(context, teacher);
-                                          }
-                                        },
-                                        itemBuilder: (context) => [
-                                          PopupMenuItem(
-                                            value: 'edit',
-                                            child: Text(
-                                              'Edit',
-                                              style: textTheme.bodyMedium,
-                                            ),
-                                          ),
-                                          PopupMenuItem(
-                                            value: 'delete',
-                                            child: Text(
-                                              'Delete',
-                                              style: textTheme.bodyMedium
-                                                  ?.copyWith(
-                                                    color: colorScheme.error,
-                                                  ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Padding(
-                              padding: const EdgeInsets.all(16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        Icons.currency_rupee,
-                                        color: Colors.green.shade600,
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Rate: ₹${teacher.perHourRate.toStringAsFixed(2)}/hr',
-                                        style: textTheme.bodyMedium?.copyWith(
-                                          color: colorScheme.onSurface
-                                              .withOpacity(0.7),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  if (teacher.subjects.isNotEmpty)
-                                    Wrap(
-                                      spacing: 6,
-                                      runSpacing: -8,
-                                      children: teacher.subjects
-                                          .map(
-                                            (s) => Chip(
-                                              label: Text(
-                                                s,
-                                                style:
-                                                    theme.chipTheme.labelStyle,
-                                              ),
-                                              backgroundColor: theme
-                                                  .chipTheme
-                                                  .backgroundColor,
-                                              padding: theme.chipTheme.padding,
-                                              visualDensity:
-                                                  VisualDensity.compact,
-                                            ),
-                                          )
-                                          .toList(),
-                                    ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Total Salary: ₹${totalSalary.toStringAsFixed(2)}',
-                                    style: textTheme.bodyMedium?.copyWith(
-                                      color: Colors.blue.shade700,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
                 ),
               ),
             ],
           ),
           floatingActionButton: FloatingActionButton(
             onPressed: _isSaving ? null : () => _showAddOrEditTeacherDialog(),
+            backgroundColor: Colors.blue.shade700,
+            foregroundColor: Colors.white,
             child: _isSaving
                 ? const SizedBox(
-                    width: 24,
-                    height: 24,
-                    child: CircularProgressIndicator(strokeWidth: 2),
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
                   )
-                : const Icon(Icons.add, size: 28),
-            tooltip: 'Add Teacher',
+                : const Icon(Icons.add),
           ),
         );
       },
     );
   }
 
-  Widget _buildShimmerLoader(ThemeData theme) {
-    final colorScheme = theme.colorScheme;
-    return Expanded(
-      child: ListView.builder(
-        itemCount: 4,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-        itemBuilder: (context, idx) => Card(
-          child: ListTile(
-            leading: Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceVariant,
-                shape: BoxShape.circle,
+  Widget _buildTeacherCard(
+    Teacher teacher,
+    int index,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    TextTheme textTheme,
+  ) {
+    final totalSalary = _teacherTotalSalary(teacher.id);
+    final lectures = _lectures[teacher.id] ?? [];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: InkWell(
+        onTap: () async {
+          final result = await Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => TeacherDetailPage(
+                teacher: teacher,
+                lectures: List<Lecture>.from(_lectures[teacher.id] ?? []),
+                onLecturesUpdated: (teacherId, updatedLectures) {
+                  setState(() {
+                    _lectures[teacherId] = updatedLectures;
+                  });
+                },
               ),
             ),
-            title: Container(
-              height: 18,
-              width: 80,
-              color: colorScheme.surfaceVariant,
-              margin: const EdgeInsets.symmetric(vertical: 6),
-            ),
-            subtitle: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  height: 12,
-                  width: 120,
-                  color: colorScheme.surfaceVariant.withOpacity(0.7),
-                  margin: const EdgeInsets.symmetric(vertical: 2),
+          );
+          if (result == true) {
+            final firebaseService = FirebaseService();
+            final latestLectures = await firebaseService.getLectures(
+              teacher.id,
+            );
+            setState(() {
+              _lectures[teacher.id] = latestLectures;
+            });
+          }
+        },
+        borderRadius: BorderRadius.circular(12),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
                 ),
-                Container(
-                  height: 12,
-                  width: 60,
-                  color: colorScheme.surfaceVariant.withOpacity(0.7),
-                  margin: const EdgeInsets.symmetric(vertical: 2),
-                ),
-              ],
+              ),
+              child: Row(
+                children: [
+                  Hero(
+                    tag: 'teacher_avatar_${teacher.id}',
+                    child: CircleAvatar(
+                      backgroundColor: Colors.blue.shade700,
+                      radius: 24,
+                      child: Text(
+                        teacher.name.isNotEmpty
+                            ? teacher.name[0].toUpperCase()
+                            : '?',
+                        style: textTheme.titleLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          teacher.name,
+                          style: textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (lectures.isNotEmpty)
+                          Text(
+                            '${lectures.length} lecture${lectures.length == 1 ? '' : 's'}',
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                  if (teacher.subjects.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        teacher.subjects.first,
+                        style: TextStyle(
+                          color: Colors.green.shade700,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  PopupMenuButton<String>(
+                    onSelected: (value) {
+                      if (value == 'edit') {
+                        _showAddOrEditTeacherDialog(teacher: teacher);
+                      } else if (value == 'delete') {
+                        _deleteTeacher(context, teacher);
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit_outlined, size: 18),
+                            SizedBox(width: 8),
+                            Text('Edit'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.delete_outline,
+                              size: 18,
+                              color: Colors.red.shade600,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Delete',
+                              style: TextStyle(color: Colors.red.shade600),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.currency_rupee,
+                        color: Colors.green.shade600,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Rate: ₹${teacher.perHourRate.toStringAsFixed(2)}/hr',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: Colors.green.shade700,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (teacher.subjects.isNotEmpty)
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: teacher.subjects
+                          .map(
+                            (s) => Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                s,
+                                style: textTheme.bodySmall?.copyWith(
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.account_balance_wallet_outlined,
+                        color: Colors.blue.shade700,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        'Total Salary: ₹${totalSalary.toStringAsFixed(2)}',
+                        style: textTheme.bodyMedium?.copyWith(
+                          color: Colors.blue.shade700,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildShimmerLoader(ThemeData theme, int count) {
+    return Expanded(
+      child: ListView.builder(
+        itemCount: count,
+        padding: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
+        itemBuilder: (context, idx) => Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.08),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blue.shade50,
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 48,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 18,
+                            width: 100,
+                            color: Colors.grey.shade200,
+                          ),
+                          const SizedBox(height: 8),
+                          Container(
+                            height: 14,
+                            width: 60,
+                            color: Colors.grey.shade200,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      height: 24,
+                      width: 48,
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade100,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade200,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Container(
+                          height: 14,
+                          width: 100,
+                          color: Colors.grey.shade200,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: List.generate(
+                        2,
+                        (i) => Container(
+                          height: 18,
+                          width: 48,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Container(
+                          width: 18,
+                          height: 18,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        Container(
+                          height: 14,
+                          width: 120,
+                          color: Colors.grey.shade200,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
