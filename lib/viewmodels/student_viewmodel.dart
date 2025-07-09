@@ -31,6 +31,8 @@ class StudentViewModel extends ChangeNotifier {
   List<AuditLog> _auditLogs = [];
   bool _isUpdatingStudent = false;
   bool _hasCompletedInitialSync = false;
+  bool _isClearingFromCloud = false;
+  double _clearProgress = 0.0;
 
   // Firebase service
   final FirebaseService _firebaseService = FirebaseService();
@@ -61,6 +63,8 @@ class StudentViewModel extends ChangeNotifier {
   List<AuditLog> get auditLogs => _auditLogs;
   bool get isUpdatingStudent => _isUpdatingStudent;
   bool get hasCompletedInitialSync => _hasCompletedInitialSync;
+  bool get isClearingFromCloud => _isClearingFromCloud;
+  double get clearProgress => _clearProgress;
 
   Set<String> get divisionOptions {
     return _students
@@ -113,33 +117,32 @@ class StudentViewModel extends ChangeNotifier {
   // Load data from local storage
   Future<void> loadDataFromLocal() async {
     try {
+      _isLoading = true;
+      notifyListeners();
       final prefs = await SharedPreferences.getInstance();
       final studentsJson = prefs.getString('students');
       final columnsJson = prefs.getString('columns');
-      final currentFileId = prefs.getString('currentFileId');
+      final fileId = prefs.getString('currentFileId');
       final fileName = prefs.getString('fileName');
-
-      if (studentsJson != null) {
-        final List<dynamic> studentsList = json.decode(studentsJson);
-        _students = studentsList.map((json) => Student.fromJson(json)).toList();
-      }
-
-      if (columnsJson != null) {
+      if (studentsJson != null && columnsJson != null) {
+        final studentsList = json.decode(studentsJson) as List;
+        _students = studentsList.map((s) => Student.fromJson(s)).toList();
         _columns = List<String>.from(json.decode(columnsJson));
-      }
-
-      if (currentFileId != null) {
-        _currentFileId = currentFileId;
-      }
-
-      if (fileName != null) {
+        _currentFileId = fileId;
         _fileName = fileName;
+        _applyFilters();
+        _error = null;
+      } else {
+        _students = [];
+        _columns = [];
+        _currentFileId = null;
+        _fileName = null;
+        _error = 'No local data found.';
       }
-
-      _applyFilters();
-      notifyListeners();
     } catch (e) {
       _error = 'Error loading local data: $e';
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
   }
@@ -383,7 +386,7 @@ class StudentViewModel extends ChangeNotifier {
       uploaded += batch.length;
       _uploadProgress = uploaded / total;
       print(
-        'Uploading batch: $uploaded / $total, progress: [32m$_uploadProgress[0m',
+        'Uploading batch: $uploaded / $total, progress:  [32m$_uploadProgress [0m',
       );
       notifyListeners();
       await Future.delayed(
@@ -480,7 +483,7 @@ class StudentViewModel extends ChangeNotifier {
   void _ensureFileId() {
     if (_currentFileId == null || _currentFileId!.isEmpty) {
       _currentFileId = 'file_${DateTime.now().millisecondsSinceEpoch}';
-      print('DEBUG: Generated new fileId: [32m$_currentFileId[0m');
+      print('DEBUG: Generated new fileId:  [32m$_currentFileId [0m');
     }
   }
 
@@ -801,12 +804,24 @@ class StudentViewModel extends ChangeNotifier {
   }
 
   Future<void> clearAllDataFromFirestore() async {
+    _isClearingFromCloud = true;
+    _clearProgress = 0.0;
+    notifyListeners();
     try {
-      await _firebaseService.deleteAllStudentsFromFirestore();
+      await _firebaseService.deleteAllStudentsFromFirestore(
+        onProgress: (deleted, total) {
+          _clearProgress = total == 0 ? 1.0 : deleted / total;
+          notifyListeners();
+        },
+      );
+      _clearProgress = 1.0;
     } catch (e) {
       _error = 'Error clearing data from Firestore: $e';
       notifyListeners();
       rethrow;
+    } finally {
+      _isClearingFromCloud = false;
+      notifyListeners();
     }
   }
 

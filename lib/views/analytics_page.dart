@@ -107,40 +107,6 @@ class _AnalyticsPageState extends State<AnalyticsPage>
   Widget build(BuildContext context) {
     return Consumer<StudentViewModel>(
       builder: (context, viewModel, child) {
-        if (viewModel.isUploadingToCloud) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.cloud_upload, size: 64, color: Colors.blue),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: 200,
-                  child: LinearProgressIndicator(
-                    value: viewModel.uploadProgress,
-                    minHeight: 10,
-                    backgroundColor: Colors.blue.shade100,
-                    valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Uploading to cloud: ${(viewModel.uploadProgress * 100).toStringAsFixed(0)}%',
-                  style: Theme.of(context).textTheme.bodyLarge,
-                ),
-                const SizedBox(height: 16),
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 32),
-                  child: Text(
-                    'Data is being synced to the cloud. Please do not close the app.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.blueGrey, fontSize: 16),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
         if (!viewModel.isUploadComplete) {
           return Center(
             child: Column(

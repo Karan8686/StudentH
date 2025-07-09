@@ -492,27 +492,64 @@ class FirebaseService {
     }
   }
 
-  Future<void> deleteAllStudentsFromFirestore() async {
+  Future<void> deleteAllStudentsFromFirestore({
+    void Function(int deleted, int total)? onProgress,
+  }) async {
     try {
       final user = _auth.currentUser;
       if (user == null) {
         throw Exception('User not authenticated');
       }
-      final collection = _firestore
+      // 1. Delete from root students collection (legacy, if any)
+      final rootCollection = _firestore
           .collection('users')
           .doc(user.uid)
           .collection('students');
-      final batch = _firestore.batch();
-      final snapshot = await collection.get();
-      for (final doc in snapshot.docs) {
-        batch.delete(doc.reference);
+      final rootSnapshot = await rootCollection.get();
+      final rootDocs = rootSnapshot.docs;
+      int total = rootDocs.length;
+      int deleted = 0;
+      for (final doc in rootDocs) {
+        print('Deleting legacy student: \\${doc.id}');
+        await doc.reference.delete();
+        deleted++;
+        if (onProgress != null) {
+          onProgress(deleted, total);
+        }
       }
-      await batch.commit();
+
+      // 2. Delete all students in every file and the file documents themselves
+      final filesCollection = _firestore
+          .collection('users')
+          .doc(user.uid)
+          .collection('files');
+      final filesSnapshot = await filesCollection.get();
+      final fileDocs = filesSnapshot.docs;
+      int totalFiles = fileDocs.length;
+      int filesDeleted = 0;
+      for (final fileDoc in fileDocs) {
+        print('Processing file: \\${fileDoc.id}');
+        // Delete all students in this file
+        final studentsCollection = fileDoc.reference.collection('students');
+        final studentsSnapshot = await studentsCollection.get();
+        final studentDocs = studentsSnapshot.docs;
+        for (final studentDoc in studentDocs) {
+          print('Deleting student in file: \\${studentDoc.id}');
+          await studentDoc.reference.delete();
+        }
+        // Delete the file document itself
+        print('Deleting file metadata: \\${fileDoc.id}');
+        await fileDoc.reference.delete();
+        filesDeleted++;
+        if (onProgress != null) {
+          onProgress(deleted + filesDeleted, total + totalFiles);
+        }
+      }
       print(
-        'All students deleted from Firestore for user [38;5;2m${user.email}[0m',
+        'All students and file metadata deleted from Firestore for user \\${user.email}',
       );
     } catch (e) {
-      print('Error deleting all students from Firestore: $e');
+      print('Error deleting all students and files from Firestore: $e');
       rethrow;
     }
   }

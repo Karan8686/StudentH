@@ -434,27 +434,49 @@ class _HomePageState extends State<HomePage>
             );
           }
 
-          if (viewModel.isLoading) {
+          if (viewModel.isLoading || viewModel.isUploadingToCloud) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(
-                    viewModel.students.isEmpty
-                        ? 'Loading Excel file...'
-                        : 'Processing large file...',
-                    style: Theme.of(context).textTheme.bodyLarge,
-                  ),
-                  if (viewModel.students.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '${viewModel.students.length} records processed',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
+                  // Show graphical progress bar with percentage if uploading to cloud
+                  if (viewModel.isUploadingToCloud) ...[
+                    SizedBox(
+                      width: 240,
+                      child: LinearProgressIndicator(
+                        value: viewModel.uploadProgress,
+                        minHeight: 12,
+                        backgroundColor: Colors.blue.shade100,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          Colors.blue.shade600,
+                        ),
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Uploading to cloud...  '
+                      '(${(viewModel.uploadProgress * 100).toStringAsFixed(0)}%)',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                  ] else ...[
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(
+                      viewModel.students.isEmpty
+                          ? 'Loading Excel file...'
+                          : 'Processing large file...',
+                      style: Theme.of(context).textTheme.bodyLarge,
+                    ),
+                    if (viewModel.students.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '${viewModel.students.length} records processed',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                    ],
                   ],
                 ],
               ),
@@ -574,7 +596,8 @@ class _HomePageState extends State<HomePage>
                 // Manual sync button
                 if (viewModel.isAuthenticated)
                   FloatingActionButton.small(
-                    onPressed: viewModel.isLoading
+                    onPressed:
+                        viewModel.isLoading || viewModel.isUploadingToCloud
                         ? null
                         : () async {
                             try {
@@ -603,16 +626,31 @@ class _HomePageState extends State<HomePage>
                     backgroundColor: Colors.orange,
                     foregroundColor: Colors.white,
                     tooltip: 'Sync to Cloud',
-                    child: viewModel.isLoading
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
+                    child: viewModel.isUploadingToCloud
+                        ? Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                  value: viewModel.uploadProgress,
+                                  strokeWidth: 3,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                  backgroundColor: Colors.orange.shade200,
+                                ),
                               ),
-                            ),
+                              Text(
+                                '${(viewModel.uploadProgress * 100).toStringAsFixed(0)}%',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 10,
+                                ),
+                              ),
+                            ],
                           )
                         : const Icon(Icons.cloud_sync),
                   ),
