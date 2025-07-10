@@ -18,7 +18,6 @@ class FirebaseService {
     try {
       final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
-        print('Google Sign-In was cancelled by user');
         return null;
       }
       final GoogleSignInAuthentication googleAuth =
@@ -28,12 +27,8 @@ class FirebaseService {
         idToken: googleAuth.idToken,
       );
       final userCredential = await _auth.signInWithCredential(credential);
-      print(
-        'Successfully signed in with Google: \\${userCredential.user?.email}',
-      );
       return userCredential;
     } catch (e) {
-      print('Error signing in with Google: $e');
       return null;
     }
   }
@@ -42,10 +37,7 @@ class FirebaseService {
     try {
       await _googleSignIn.signOut();
       await _auth.signOut();
-      print('Successfully signed out');
-    } catch (e) {
-      print('Error signing out: $e');
-    }
+    } catch (e) {}
   }
 
   User? get currentUser => _auth.currentUser;
@@ -82,11 +74,7 @@ class FirebaseService {
       }
 
       await batch.commit();
-      print(
-        'Successfully uploaded ${students.length} students to Firestore for user ${user.email}',
-      );
     } catch (e) {
-      print('Error uploading students to Firestore: $e');
       rethrow;
     }
   }
@@ -109,7 +97,6 @@ class FirebaseService {
         return Student.fromMap(data['data'] as Map<String, dynamic>, doc.id);
       }).toList();
     } catch (e) {
-      print('Error getting students from Firestore: $e');
       return [];
     }
   }
@@ -139,7 +126,6 @@ class FirebaseService {
             'updatedAt': FieldValue.serverTimestamp(),
           });
     } catch (e) {
-      print('Error updating student in Firestore: $e');
       rethrow;
     }
   }
@@ -158,7 +144,6 @@ class FirebaseService {
           .doc(studentId)
           .delete();
     } catch (e) {
-      print('Error deleting student from Firestore: $e');
       rethrow;
     }
   }
@@ -171,7 +156,6 @@ class FirebaseService {
     try {
       final user = _auth.currentUser;
       if (user == null) {
-        print('User not authenticated');
         return null;
       }
 
@@ -182,10 +166,8 @@ class FirebaseService {
       final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
 
-      print('Excel file uploaded successfully: $downloadUrl');
       return downloadUrl;
     } catch (e) {
-      print('Error uploading Excel file to Storage: $e');
       return null;
     }
   }
@@ -194,7 +176,6 @@ class FirebaseService {
     try {
       final user = _auth.currentUser;
       if (user == null) {
-        print('User not authenticated');
         return [];
       }
 
@@ -209,7 +190,6 @@ class FirebaseService {
 
       return downloadUrls;
     } catch (e) {
-      print('Error getting Excel files from Storage: $e');
       return [];
     }
   }
@@ -228,16 +208,11 @@ class FirebaseService {
         throw Exception('User not authenticated');
       }
 
-      print('Starting sync for user: ${user.email}');
-      print('Students to sync: ${students.length}');
-      print('Columns: $columns');
-
       String fileId;
 
       if (existingFileId != null) {
         // Update existing file
         fileId = existingFileId;
-        print('Updating existing file: $fileId');
 
         // Clear existing students and add new ones
         await _clearStudentsFromFile(fileId);
@@ -259,7 +234,6 @@ class FirebaseService {
         // Create new file
         final timestamp = DateTime.now().millisecondsSinceEpoch;
         fileId = 'file_$timestamp';
-        print('Creating new file: $fileId');
 
         // Upload students to Firestore with file ID
         await uploadStudentsToFirestoreWithFileId(students, fileId);
@@ -291,12 +265,7 @@ class FirebaseService {
               'lastUpdated': FieldValue.serverTimestamp(),
             }, SetOptions(merge: true));
       }
-
-      print(
-        'Data synced to cloud successfully for user ${user.email} with file ID: $fileId',
-      );
     } catch (e) {
-      print('Error syncing data to cloud: $e');
       rethrow;
     }
   }
@@ -324,9 +293,7 @@ class FirebaseService {
       }
 
       await batch.commit();
-      print('Cleared all students from file: $fileId');
     } catch (e) {
-      print('Error clearing students from file: $e');
       rethrow;
     }
   }
@@ -367,11 +334,7 @@ class FirebaseService {
       }
 
       await batch.commit();
-      print(
-        'Successfully uploaded ${students.length} students to Firestore for file ID: $fileId',
-      );
     } catch (e) {
-      print('Error uploading students to Firestore: $e');
       rethrow;
     }
   }
@@ -383,49 +346,25 @@ class FirebaseService {
         throw Exception('User not authenticated');
       }
 
-      print('DEBUG: Getting available files for user: ${user.email}');
-
-      final doc = await _firestore
+      // Get all documents in metadata and filter for file documents
+      final querySnapshot = await _firestore
           .collection('users')
           .doc(user.uid)
           .collection('metadata')
-          .doc('file_list')
           .get();
-
-      print('DEBUG: file_list document exists: ${doc.exists}');
-      print('DEBUG: file_list data: ${doc.data()}');
-
-      if (!doc.exists || doc.data()?['files'] == null) {
-        print('DEBUG: No file_list found or no files array');
-        return [];
-      }
-
-      final List<String> fileIds = List<String>.from(doc.data()!['files']);
-      print('DEBUG: File IDs found: $fileIds');
 
       List<Map<String, dynamic>> files = [];
 
-      for (String fileId in fileIds) {
-        print('DEBUG: Getting metadata for file: $fileId');
-        final metadataDoc = await _firestore
-            .collection('users')
-            .doc(user.uid)
-            .collection('metadata')
-            .doc(fileId)
-            .get();
-
-        if (metadataDoc.exists) {
-          final data = metadataDoc.data()!;
+      for (final doc in querySnapshot.docs) {
+        if (doc.id.startsWith('file_')) {
+          final data = doc.data();
           files.add({
-            'fileId': fileId,
+            'fileId': doc.id,
             'fileName': data['fileName'] ?? 'Unknown',
             'timestamp': data['timestamp'] ?? 0,
             'uploadDate': data['uploadDate'],
             'studentCount': data['studentCount'] ?? 0,
           });
-          print('DEBUG: Added file: $fileId with name: ${data['fileName']}');
-        } else {
-          print('DEBUG: Metadata not found for file: $fileId');
         }
       }
 
@@ -433,12 +372,8 @@ class FirebaseService {
       files.sort(
         (a, b) => (b['timestamp'] as int).compareTo(a['timestamp'] as int),
       );
-      print(
-        'DEBUG: Final files list: ${files.map((f) => f['fileId']).toList()}',
-      );
       return files;
     } catch (e) {
-      print('DEBUG: Error getting available files: $e');
       return [];
     }
   }
@@ -463,7 +398,6 @@ class FirebaseService {
         return Student.fromMap(data['data'] as Map<String, dynamic>, doc.id);
       }).toList();
     } catch (e) {
-      print('Error getting students from file: $e');
       return [];
     }
   }
@@ -487,7 +421,6 @@ class FirebaseService {
       }
       return null;
     } catch (e) {
-      print('Error getting file metadata: $e');
       return null;
     }
   }
@@ -500,57 +433,50 @@ class FirebaseService {
       if (user == null) {
         throw Exception('User not authenticated');
       }
-      // 1. Delete from root students collection (legacy, if any)
-      final rootCollection = _firestore
-          .collection('users')
-          .doc(user.uid)
-          .collection('students');
-      final rootSnapshot = await rootCollection.get();
-      final rootDocs = rootSnapshot.docs;
-      int total = rootDocs.length;
-      int deleted = 0;
-      for (final doc in rootDocs) {
-        print('Deleting legacy student: \\${doc.id}');
-        await doc.reference.delete();
-        deleted++;
-        if (onProgress != null) {
-          onProgress(deleted, total);
-        }
-      }
-
-      // 2. Delete all students in every file and the file documents themselves
+      // Explicitly delete known subcollections under each file document in 'files'
       final filesCollection = _firestore
           .collection('users')
           .doc(user.uid)
           .collection('files');
       final filesSnapshot = await filesCollection.get();
-      final fileDocs = filesSnapshot.docs;
-      int totalFiles = fileDocs.length;
-      int filesDeleted = 0;
-      for (final fileDoc in fileDocs) {
-        print('Processing file: \\${fileDoc.id}');
-        // Delete all students in this file
-        final studentsCollection = fileDoc.reference.collection('students');
-        final studentsSnapshot = await studentsCollection.get();
-        final studentDocs = studentsSnapshot.docs;
-        for (final studentDoc in studentDocs) {
-          print('Deleting student in file: \\${studentDoc.id}');
-          await studentDoc.reference.delete();
-        }
+      for (final fileDoc in filesSnapshot.docs) {
+        // Delete 'students' subcollection
+        await deleteCollectionInBatches(
+          'users/${user.uid}/files/${fileDoc.id}/students',
+        );
+        // Delete 'audit_logs' subcollection
+        await deleteCollectionInBatches(
+          'users/${user.uid}/files/${fileDoc.id}/audit_logs',
+        );
         // Delete the file document itself
-        print('Deleting file metadata: \\${fileDoc.id}');
         await fileDoc.reference.delete();
-        filesDeleted++;
-        if (onProgress != null) {
-          onProgress(deleted + filesDeleted, total + totalFiles);
-        }
       }
-      print(
-        'All students and file metadata deleted from Firestore for user \\${user.email}',
-      );
+      // Delete all documents in the 'metadata' collection
+      await deleteCollectionInBatches('users/${user.uid}/metadata');
     } catch (e) {
-      print('Error deleting all students and files from Firestore: $e');
       rethrow;
+    }
+  }
+
+  /// Deletes all documents in the given collection from Firestore in batches.
+  /// This is the recommended approach for large collections.
+  Future<void> deleteCollectionInBatches(
+    String collectionPath, {
+    int batchSize = 500,
+  }) async {
+    final collectionRef = FirebaseFirestore.instance.collection(collectionPath);
+    bool done = false;
+    while (!done) {
+      final snapshot = await collectionRef.limit(batchSize).get();
+      final batch = FirebaseFirestore.instance.batch();
+      for (final doc in snapshot.docs) {
+        batch.delete(doc.reference);
+      }
+      if (snapshot.docs.isEmpty) {
+        done = true;
+      } else {
+        await batch.commit();
+      }
     }
   }
 
@@ -583,7 +509,6 @@ class FirebaseService {
             'updatedAt': FieldValue.serverTimestamp(),
           });
     } catch (e) {
-      print('Error adding student to file: $e');
       rethrow;
     }
   }
@@ -615,7 +540,6 @@ class FirebaseService {
             'updatedAt': FieldValue.serverTimestamp(),
           });
     } catch (e) {
-      print('Error updating student in file: $e');
       rethrow;
     }
   }
@@ -636,7 +560,6 @@ class FirebaseService {
           .doc(studentId)
           .delete();
     } catch (e) {
-      print('Error deleting student from file: $e');
       rethrow;
     }
   }
@@ -661,11 +584,7 @@ class FirebaseService {
       }
 
       await batch.commit();
-      print(
-        'Successfully uploaded \\${teachers.length} teachers to Firestore for user \\${user.email}',
-      );
     } catch (e) {
-      print('Error uploading teachers to Firestore: $e');
       rethrow;
     }
   }
@@ -688,7 +607,6 @@ class FirebaseService {
         return Teacher.fromMap(data, doc.id);
       }).toList();
     } catch (e) {
-      print('Error getting teachers from Firestore: $e');
       return [];
     }
   }
@@ -707,7 +625,6 @@ class FirebaseService {
           .doc(teacher.id)
           .update(teacher.toMap());
     } catch (e) {
-      print('Error updating teacher in Firestore: $e');
       rethrow;
     }
   }
@@ -726,7 +643,6 @@ class FirebaseService {
           .doc(teacherId)
           .delete();
     } catch (e) {
-      print('Error deleting teacher from Firestore: $e');
       rethrow;
     }
   }
@@ -745,7 +661,6 @@ class FirebaseService {
           .doc(lecture.id)
           .set(lecture.toMap());
     } catch (e) {
-      print('Error adding lecture: $e');
       rethrow;
     }
   }
@@ -766,7 +681,6 @@ class FirebaseService {
         return Lecture.fromMap(data, doc.id, teacherId);
       }).toList();
     } catch (e) {
-      print('Error getting lectures: $e');
       return [];
     }
   }
@@ -784,7 +698,6 @@ class FirebaseService {
           .doc(lecture.id)
           .update(lecture.toMap());
     } catch (e) {
-      print('Error updating lecture: $e');
       rethrow;
     }
   }
@@ -802,7 +715,6 @@ class FirebaseService {
           .doc(lectureId)
           .delete();
     } catch (e) {
-      print('Error deleting lecture: $e');
       rethrow;
     }
   }
@@ -824,7 +736,6 @@ class FirebaseService {
       if (data == null || data['data'] == null) return null;
       return Student.fromMap(Map<String, dynamic>.from(data['data']), doc.id);
     } catch (e) {
-      print('Error getting student from Firestore: $e');
       return null;
     }
   }

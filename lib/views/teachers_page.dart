@@ -5,6 +5,8 @@ import 'teacher_detail_page.dart';
 import 'package:provider/provider.dart';
 import '../services/firebase_service.dart';
 import 'package:flutter/rendering.dart';
+import '../services/network_service.dart';
+import 'no_network_screen.dart';
 
 class TeachersPage extends StatefulWidget {
   const TeachersPage({Key? key}) : super(key: key);
@@ -20,6 +22,8 @@ class _TeachersPageState extends State<TeachersPage>
   late AnimationController _fadeSlideController;
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
+  final NetworkService _networkService = NetworkService();
+  bool _isNetworkConnected = true;
 
   @override
   void initState() {
@@ -43,6 +47,7 @@ class _TeachersPageState extends State<TeachersPage>
       parent: _fadeSlideController,
       curve: Curves.easeIn,
     );
+    _checkNetworkStatus();
     _loadTeachersAndLectures();
   }
 
@@ -56,21 +61,39 @@ class _TeachersPageState extends State<TeachersPage>
   @override
   bool get wantKeepAlive => true;
 
-  Future<void> _loadTeachersAndLectures() async {
-    final viewModel = Provider.of<TeacherViewModel>(context, listen: false);
-    await viewModel.loadTeachers();
-    final teachers = viewModel.teachers;
-    final firebaseService = FirebaseService();
-    Map<String, List<Lecture>> lecturesMap = {};
-    for (final teacher in teachers) {
-      final lectures = await firebaseService.getLectures(teacher.id);
-      lecturesMap[teacher.id] = lectures;
+  Future<void> _checkNetworkStatus() async {
+    final isConnected = await _networkService.checkConnection();
+    if (mounted) {
+      setState(() {
+        _isNetworkConnected = isConnected;
+      });
     }
-    setState(() {
-      _lectures.clear();
-      _lectures.addAll(lecturesMap);
-    });
-    _animationController.forward();
+  }
+
+  Future<void> _loadTeachersAndLectures() async {
+    if (!_isNetworkConnected) {
+      return;
+    }
+    final viewModel = Provider.of<TeacherViewModel>(context, listen: false);
+    try {
+      await viewModel.loadTeachers();
+      final teachers = viewModel.teachers;
+      final firebaseService = FirebaseService();
+      Map<String, List<Lecture>> lecturesMap = {};
+      for (final teacher in teachers) {
+        final lectures = await firebaseService.getLectures(teacher.id);
+        lecturesMap[teacher.id] = lectures;
+      }
+      setState(() {
+        _lectures.clear();
+        _lectures.addAll(lecturesMap);
+      });
+      _animationController.forward();
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error loading data: $e')));
+    }
   }
 
   Future<void> _refreshTeachers() async {
@@ -301,6 +324,9 @@ class _TeachersPageState extends State<TeachersPage>
 
   @override
   Widget build(BuildContext context) {
+    if (!_isNetworkConnected) {
+      return NoNetworkScreen(onRetry: _checkNetworkStatus);
+    }
     super.build(context);
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -715,146 +741,144 @@ class _TeachersPageState extends State<TeachersPage>
   }
 
   Widget _buildShimmerLoader(ThemeData theme, int count) {
-    return Expanded(
-      child: ListView.builder(
-        itemCount: count,
-        padding: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
-        itemBuilder: (context, idx) => Container(
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.08),
-                blurRadius: 8,
-                offset: const Offset(0, 2),
+    return ListView.builder(
+      itemCount: count,
+      padding: const EdgeInsets.only(bottom: 80, left: 16, right: 16),
+      itemBuilder: (context, idx) => Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.08),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.shade50,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
               ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blue.shade50,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(12),
-                    topRight: Radius.circular(12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      shape: BoxShape.circle,
+                    ),
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Container(
-                            height: 18,
-                            width: 100,
-                            color: Colors.grey.shade200,
-                          ),
-                          const SizedBox(height: 8),
-                          Container(
-                            height: 14,
-                            width: 60,
-                            color: Colors.grey.shade200,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      height: 24,
-                      width: 48,
-                      decoration: BoxDecoration(
-                        color: Colors.green.shade100,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 24,
-                      height: 24,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade200,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          width: 18,
                           height: 18,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Container(
-                          height: 14,
                           width: 100,
                           color: Colors.grey.shade200,
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: List.generate(
-                        2,
-                        (i) => Container(
-                          height: 18,
-                          width: 48,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Container(
-                          width: 18,
-                          height: 18,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade200,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
+                        const SizedBox(height: 8),
                         Container(
                           height: 14,
-                          width: 120,
+                          width: 60,
                           color: Colors.grey.shade200,
                         ),
                       ],
                     ),
-                  ],
-                ),
+                  ),
+                  Container(
+                    height: 24,
+                    width: 48,
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade100,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade200,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        height: 14,
+                        width: 100,
+                        color: Colors.grey.shade200,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: List.generate(
+                      2,
+                      (i) => Container(
+                        height: 18,
+                        width: 48,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Container(
+                        width: 18,
+                        height: 18,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Container(
+                        height: 14,
+                        width: 120,
+                        color: Colors.grey.shade200,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
